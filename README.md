@@ -1,33 +1,22 @@
 # Phonepe Pulse Data Exploration and Visualization
 
-## 📘 Introduction
+##  Introduction
 * Developed a Streamlit application for analyzing transactions and user data from the Pulse dataset cloned from the PhonePe Pulse GitHub repository. Explored data insights on states, years, quarters, districts, transaction types, and user brands through EDA. Visualized trends and patterns using plots and charts to optimize decision-making in the Fintech industry.
   
-### Domain : 📱 *Social Media*
+### Domain :  *FINTECH*
 
-### 🎨 Skills Takeaway :
-__Python scripting, Data Collection, Streamlit, API integration, Data Management using Postgre SQL, MongoDb as Data Lake__
+###  Skills Takeaway :
+__Python scripting, Data Collection, Streamlit, Git Cloning ,Postgre SQL
 
-### 📘 Overview
-
-#### 🌾Data Harvesting:
-* Utilizing the YouTube API to collect data such as video details, channel information, playlists, and comments.
-#### 📥 Data Storage:
-* Setting up a local PostgreSQL database
-* Creating tables to store the harvested YouTube data.
-* Using SQL scripts to insert the collected data into the database.
-#### 📊 Data Analysis and Visualization:
-* Developing a Streamlit application to interact with the SQL database.
-* Creating visualizations and performing analysis on the stored YouTube data
-
-### 🛠  Technology and Tools
+###   Technology and Tools
 * Python
 * Postgre SQL
-* Youtube API
+* Git
 * Streamlit
 * Plotly
+* Pandas
 
-### 📚  Packages and Libraries    
+###   Packages and Libraries    
 * PostgreSQL-connector-python        
 👉importpsycopg2.connect
 * pandas        
@@ -40,23 +29,29 @@ __Python scripting, Data Collection, Streamlit, API integration, Data Management
 👉 import plotly.express as px
 * pillow        
 👉 from PIL import Image
+* json
+👉 import json 
   
-### 📘  Features
+###   Features
 
-#### 📚 Data Collection:
-* The data collection process involved retrieving various data points from YouTube using the YouTube Data API. Retrieve channel information, videos details, playlists and comments.
-#### 💾 Database Storage:
-*The collected YouTube data was transformed into pandas dataframes. Before that, a temporary database was created using collections and documents with the help of MongoDB, The data was inserted into the respective tables. The database could be accessed and managed in the PostgreSQL database environment.
-#### 📋Data Analysis:
-* By using YouTube channel data stored in the PostgreSQL database, performed SQL queries to answer 10 questions about the YouTube channels. When selecting a question, the results will be displayed in the Streamlit application in the form of tables.
-#### 📊 Data Visualization: 
-* By using YouTube channel data stored in the PostgreSQL database, The data was presented in visually appealing charts and graphs using Plotly. when selecting a Query, the visualization  diplayed in streamlit application
-
-### 📘 Usage
-* Enter a YouTube channel ID or name in the input field in Data collection option from sidebar menu.
-* Click the "View Details" button to fetch and display channel information.
-* Click the "Upload to MySQL" button to store channel data in the SQL database.
-* Select Analysis and Visualization options from the sidebar menu to analyze and visualize data.
+####  Data Collection:
+* Clone PhonePe Pulse data from the GitHub repository to your local directory for seamless access. Streamline your data collection process effortlessly. Explore a rich variety of insightful metrics and analytics, empowering you with comprehensive information. Make informed decisions with up-to-date data, ensuring precision in your analyses and strategies.
+####  Data Overview:
+* Immerse yourself in a detailed exploration of the collected data. Gain comprehensive insights with breakdowns by states, years, quarters, transaction types, and user devices. This thorough analysis empowers you to make informed decisions based on a nuanced understanding of the dataset. Uncover trends, patterns, and correlations that drive strategic planning. Elevate your data-driven approach with a wealth of information at your fingertips.
+#### Migrating Data to SQL Database:
+* Simplify your workflow by seamlessly converting PhonePe Pulse data from JSON to a structured DataFrame. Effortlessly store the organized data in a PostgreSQL Database, ensuring optimal accessibility and efficiency. This streamlined process facilitates easier querying and analysis. Take advantage of a robust foundation for your data-driven applications and insights.
+#### Interactive Streamlit Interface:
+* Unleash the power of data exploration through our Streamlit app. The intuitive interface facilitates seamless interaction with dynamic charts, allowing users to customize visualizations and apply filters. Effortlessly zoom in or out to delve into specific nuances of your analysis. Empower your data-driven decisions with a user-friendly and adaptable platform.
+#### Dynamic Visualizations with Plotly:
+* Unlock the potential of Plotly to generate an array of charts, from dynamic line charts to insightful bar charts, scatter plots, and pie charts. Dive into your data with these visualizations, gaining a deeper understanding and effortlessly identifying patterns, trends, and correlations. Plotly's robust features empower users to create compelling visuals that enhance data exploration and analysis.
+#### Data Insights and Exploration:
+* Embark on a dynamic analytical journey with our interactive Plotly charts and maps. Delve into nuanced insights across states, years, quarters, districts, transaction types, and user brands. Navigate seamlessly through a wealth of information, gaining a comprehensive understanding of your data landscape. Uncover patterns and trends that empower informed decision-making, making your exploration both insightful and user-friendly.
+#### Live Geo Visualization Dashboard:
+* Elevate your data exploration with a dynamic geo-visualization dashboard crafted using Streamlit and Plotly. Interact seamlessly with live maps, gaining real-time insights and unlocking the full potential of your geographical data. Effortlessly navigate through the interactive features to enhance your understanding and make informed decisions based on the latest information.
+#### Top Charts:
+* Effortlessly discern the top 10 states, districts, and pincodes through user-friendly visualizations. Engage with ease using our intuitive Streamlit dashboard, designed for seamless exploration. Navigate through insightful charts and graphs to glean actionable insights, empowering you to make informed decisions. Simplify your data-driven strategy by focusing on key performance indicators, ensuring a comprehensive understanding of top performers.
+#### Data-Driven Decision Making:
+* Elevate your decision-making prowess by leveraging insights from PhonePe Pulse data uncover valuable trends, patterns, and statistics. Navigate confidently through a sea of information, ensuring each decision is fortified with robust, data-driven analysis. Empower your strategies with actionable intelligence, transforming raw data into a powerful tool for informed and impactful choices. Make every decision count with the precision and confidence derived from a data-rich foundation.
 
 ### Demo Video:
  YT URL: https://www.youtube.com/watch?v=S65_NgXTUto
