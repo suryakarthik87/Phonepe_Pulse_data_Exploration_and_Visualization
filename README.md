@@ -6,7 +6,7 @@
 ### Domain :  *FINTECH*
 
 ###  Skills Takeaway :
-__Python scripting, Data Collection, Streamlit, Git Cloning ,Postgre SQL
+Python scripting, Data Collection, Streamlit, Git Cloning ,Postgre SQL
 
 ###   Technology and Tools
 * Python
@@ -17,22 +17,17 @@ __Python scripting, Data Collection, Streamlit, Git Cloning ,Postgre SQL
 * Pandas
 
 ###   Packages and Libraries    
-* PostgreSQL-connector-python        
-👉importpsycopg2.connect
-* pandas        
-👉 import pandas as pd
-* streamlit      
-👉 import streamlit as st
-* streamlit_option_menu        
-👉 from streamlit_option_menu import option_menu
-* plotly      
-👉 import plotly.express as px
-* pillow        
-👉 from PIL import Image
-* json
-👉 import json 
+* import psycopg2.connect
+* import pandas as pd  
+* import streamlit as st      
+* from streamlit_option_menu import option_menu    
+* import plotly.express as px    
+* from PIL import Image
+* import json
+* import os
+* import requests 
   
-###   Features
+##   Features
 
 ####  Data Collection:
 * Clone PhonePe Pulse data from the GitHub repository to your local directory for seamless access. Streamline your data collection process effortlessly. Explore a rich variety of insightful metrics and analytics, empowering you with comprehensive information. Make informed decisions with up-to-date data, ensuring precision in your analyses and strategies.
@@ -54,7 +49,7 @@ __Python scripting, Data Collection, Streamlit, Git Cloning ,Postgre SQL
 * Elevate your decision-making prowess by leveraging insights from PhonePe Pulse data uncover valuable trends, patterns, and statistics. Navigate confidently through a sea of information, ensuring each decision is fortified with robust, data-driven analysis. Empower your strategies with actionable intelligence, transforming raw data into a powerful tool for informed and impactful choices. Make every decision count with the precision and confidence derived from a data-rich foundation.
 
 ### Demo Video:
- YT URL: https://www.youtube.com/watch?v=S65_NgXTUto
+ YouTube URL: https://www.youtube.com/watch?v=S65_NgXTUto
 ### Contact
 🌐LINKEDIN :  www.linkedin.com/in/suryakarthik87           
 📧EMAIL:suryakarthik87@gmail.com
