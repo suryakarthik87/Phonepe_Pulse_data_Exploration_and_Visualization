@@ -1,4 +1,4 @@
-# YouTube-Data-Harvesting-and-Warehousing-using-Postgre SQL-and-Streamlit
+# Phonepe Pulse Data Exploration and Visualization
 
 ## 📘 Introduction
 * The project about Building a simple dashboard or UI using Streamlit.
@@ -25,20 +25,14 @@ __Python scripting, Data Collection, Streamlit, API integration, Data Management
 
 ### 🛠  Technology and Tools
 * Python
-* MongoDb
 * Postgre SQL
 * Youtube API
 * Streamlit
 * Plotly
 
-### 📚  Packages and Libraries
-* google-api-python-client        
-👉 import googleapiclient.discovery        
-👉from googleapiclient.errors import HttpError
+### 📚  Packages and Libraries    
 * PostgreSQL-connector-python        
 👉importpsycopg2.connect
-* MongoDB Data Lake               
-👉 import pymongo
 * pandas        
 👉 import pandas as pd
 * streamlit      
