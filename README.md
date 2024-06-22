@@ -1,10 +1,7 @@
 # Phonepe Pulse Data Exploration and Visualization
 
 ## 📘 Introduction
-* The project about Building a simple dashboard or UI using Streamlit.
-* Retrieve YouTube channel data with the help of  YouTube API.
-* Stored the data in SQL database(warehousing)
-* enabling querying of the data using SQL and Visualize the data within the Streamlit.
+* Developed a Streamlit application for analyzing transactions and user data from the Pulse dataset cloned from the PhonePe Pulse GitHub repository. Explored data insights on states, years, quarters, districts, transaction types, and user brands through EDA. Visualized trends and patterns using plots and charts to optimize decision-making in the Fintech industry.
   
 ### Domain : 📱 *Social Media*
 
