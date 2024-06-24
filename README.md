@@ -49,7 +49,7 @@ Python scripting, Data Collection, Streamlit, Git Cloning ,Postgre SQL
 * Elevate your decision-making prowess by leveraging insights from PhonePe Pulse data uncover valuable trends, patterns, and statistics. Navigate confidently through a sea of information, ensuring each decision is fortified with robust, data-driven analysis. Empower your strategies with actionable intelligence, transforming raw data into a powerful tool for informed and impactful choices. Make every decision count with the precision and confidence derived from a data-rich foundation.
 
 ### Demo Video:
- YouTube URL: https://www.youtube.com/watch?v=S65_NgXTUto
+ YouTube URL: https://www.youtube.com/watch?v=zbwv6MqHODM
 ### Contact
 🌐LINKEDIN :  www.linkedin.com/in/suryakarthik87           
 📧EMAIL:suryakarthik87@gmail.com
