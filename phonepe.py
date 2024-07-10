@@ -7,6 +7,10 @@ import plotly.express as px
 import json
 import requests
 from PIL import Image
+from babel.numbers import format_currency
+import folium
+import plotly.graph_objects as go
+import os
 
 
 #------------------------------------------------SQL CONNECTION-----------------------------------------------
@@ -15,7 +19,7 @@ mydb = psycopg2.connect(host = "localhost",
                         port = "5432",
                         user = "postgres",
                         password = "karthik",
-                        database = "phonepe")
+                        database = "phonepe_pulse")
 
 cursor = mydb.cursor()
 
@@ -100,679 +104,140 @@ top_user_table = cursor.fetchall()
 
 top_user_df = pd.DataFrame(top_user_table, columns=("States","Years","Quarter","Pincode","RegisteredUsers"))
 
-#---------------------------------------FUNCTION FOR TRANSACTION AMOUNT AND COUNT USING YEARLY-------------------------------------------------
 
-def transaction_amount_count_Y(df,year):
-    tacy = df[df["Years"] == year]
-    tacy.reset_index(drop=True, inplace = True)
+#--------------------------------------------------FORMATING VALUES--------------------------------------------------------
 
-    tacyg = tacy.groupby("States")[["Transaction_count","Transaction_amount"]].sum()
-    tacyg.reset_index(inplace=True)
+def format_amount(amount):
+    def format_indian_number(number):
+        num_str = str(int(number))[::-1]  
+        formatted_str = ""
+        for i in range(len(num_str)):
+            if i != 0 and (i == 3 or (i > 3 and (i - 1) % 2 == 0)):
+                formatted_str += ','
+            formatted_str += num_str[i]
+        return formatted_str[::-1]
+
+    if amount >= 1e7:
+        amount_in_crore = amount / 1e7
+        formatted_amount = format_currency(amount_in_crore, 'INR', locale='en_IN')
+        return f"{formatted_amount} Cr"
+    elif amount >= 1e5:
+        amount_in_lakhs = amount / 1e5
+        formatted_amount = format_currency(amount_in_lakhs, 'INR', locale='en_IN')
+        return f"{formatted_amount} L"
+    elif amount >= 1e3:
+        amount_in_thousand = amount / 1e3
+        formatted_amount = format_currency(amount_in_thousand, 'INR', locale='en_IN')
+        return f"{formatted_amount} K"
+    else:
+        formatted_amount = format_currency(amount, 'INR', locale='en_IN')
+        return format_indian_number(amount)
+
     
-    st.write(f" TRANSACTION DETAILS FOR THE YEAR {year}")
-    st.dataframe(tacyg)
+def format_number(number):
+    num_str = str(int(number))[::-1]  
+    formatted_str = ""
+    for i in range(len(num_str)):
+        if i != 0 and (i == 3 or (i > 3 and (i - 1) % 2 == 0)):
+            formatted_str += ','
+        formatted_str += num_str[i]
+    return formatted_str[::-1]
+
+#-----------------------------------------------------------GEO VIEW OF INDIAN STATES-----------------------------------------------------
+
+
+url="https://gist.githubusercontent.com/jbrobst/56c13bbbf9d97d187fea01ca62ea5112/raw/e388c4cae20aa53cb5090210a42ebb9b765c0a36/india_states.geojson"
+response = requests.get(url)
+india_states_geojson = json.loads(response.content)
+
+
+  
+def make_choropleth(input_df):
+    fig = px.choropleth(
+    input_df,
+    geojson=india_states_geojson,
+    featureidkey='properties.ST_NM',
+    locations='States',
+    projection="mercator",
+    hover_data=['Years','Transaction_amount'],
+    color='Transaction_count',
+    color_discrete_sequence=px.colors.sequential.Viridis,
+    range_color=(input_df['Transaction_count'].min(), input_df['Transaction_count'].max())
+    )
+
+    fig.update_geos(fitbounds="locations", visible=False)
     
-    col1,col2 = st.columns(2)
-    with col1:
+    fig.update_layout(
+        width=1200,  
+        height=1500, 
+        margin={"r":0,"t":0,"l":0,"b":0},
+        geo=dict(bgcolor='rgba(0,0,0,0)')
 
-        fig_amount = px.bar(tacyg, x="States", y="Transaction_amount", title = f" TRANSACTION AMOUNT FOR THE YEAR {year}",
-                            color_discrete_sequence=px.colors.sequential.Bluered_r, height=650, width=600)
-        st.plotly_chart(fig_amount)
+    )
 
-    with col2:
+    return fig
 
-        fig_count = px.bar(tacyg, x="States", y="Transaction_count", title = f"TRANSACTION COUNT FOR THE YEAR {year}",
-                            color_discrete_sequence=px.colors.sequential.Bluered_r,height=650, width=600)
-        st.plotly_chart(fig_count)
+def ins_choropleth(input_df):
+    fig = px.choropleth(
+    input_df,
+    geojson=india_states_geojson,
+    featureidkey='properties.ST_NM',
+    locations='States',
+    projection="mercator",
+    hover_data=['Years','Transaction_amount'],
+    color='Transaction_count',
+    color_discrete_sequence=px.colors.sequential.Viridis,
+    range_color=(input_df['Transaction_count'].min(), input_df['Transaction_count'].max())
+    )
 
-    col1,col2 = st.columns(2)
-
-    with col1:
-        url = "https://gist.githubusercontent.com/jbrobst/56c13bbbf9d97d187fea01ca62ea5112/raw/e388c4cae20aa53cb5090210a42ebb9b765c0a36/india_states.geojson"
-        response = requests.get(url)
-        states_name = []
-        data1 = json.loads(response.content)
-        for feature in data1["features"]:
-            states_name.append(feature["properties"]["ST_NM"])
-
-        states_name.sort()
-
-        fig_india_1 = px.choropleth(tacyg, geojson = data1, locations = "States", featureidkey = "properties.ST_NM",
-                                    color = "Transaction_amount", color_continuous_scale = "Rainbow",
-                                    range_color = (tacyg["Transaction_amount"].min(),tacyg["Transaction_amount"].max() ),
-                                    hover_name = "States", title = f"TRANSACTION AMOUNT FOR THE YEAR {year}", fitbounds="locations",
-                                    height = 600, width = 600)
+    fig.update_geos(fitbounds="locations", visible=False)
         
-        fig_india_1.update_geos(visible = False)
-        st.plotly_chart(fig_india_1)
+    fig.update_layout(
+        width=1200,  
+        height=1500, 
+        margin={"r":0,"t":0,"l":0,"b":0},
+        geo=dict(bgcolor='rgba(0,0,0,0)')
 
-    with col2:
-        fig_india_2 = px.choropleth(tacyg, geojson = data1, locations = "States", featureidkey = "properties.ST_NM",
-                                    color = "Transaction_count", color_continuous_scale = "Rainbow",
-                                    range_color = (tacyg["Transaction_count"].min(),tacyg["Transaction_count"].max() ),
-                                    hover_name = "States", title = f"TRANSACTION COUNT FOR THE YEAR {year} ", fitbounds="locations",
-                                    height = 600, width = 600)
-        
-        fig_india_2.update_geos(visible = False)
-        st.plotly_chart(fig_india_2)
+    )
+    return fig
 
-    return tacy
 
-#--------------------------------------FUNCTION FOR TRANSACTION AMOUNT AND COUNT USING QUARTERLY-----------------------------------
-def transaction_amount_count_Y_Q(df,quarter):
-    tacy = df[df["Quarter"] == quarter]
-    tacy.reset_index(drop=True, inplace = True)
+def user_choropleth(input_df):
+    fig = px.choropleth(
+    input_df,
+    geojson=india_states_geojson,
+    featureidkey='properties.ST_NM',
+    locations='States',
+    projection="mercator",
+    hover_data=['AppOpens','RegisteredUsers'],
+    color='RegisteredUsers',
+    color_discrete_sequence=px.colors.sequential.Viridis,
+    range_color=(input_df['RegisteredUsers'].min(), input_df['RegisteredUsers'].max())
+    )
 
-    tacyg = tacy.groupby("States")[["Transaction_count","Transaction_amount"]].sum()
-    tacyg.reset_index(inplace=True)
-    st.write(f"Q{quarter}: TRANSACTION DETAILS FOR THE YEAR {tacy['Years'].min()} ")
-    st.dataframe(tacyg)
-    col1,col2 = st.columns(2)
+    fig.update_geos(fitbounds="locations", visible=False)
     
-    with col1:
-    
-        fig_amount = px.bar(tacyg, x="States", y="Transaction_amount", title = f"Q{quarter}: TRANSACTION AMOUNT FOR THE YEAR {tacy['Years'].min()} ",
-                            color_discrete_sequence=px.colors.sequential.PuBu, height=650, width=600)
-        st.plotly_chart(fig_amount)
-    
-    with col2:
-
-        fig_count = px.bar(tacyg, x="States", y="Transaction_count", title = f"Q{quarter}: TRANSACTION COUNT FOR THE YEAR {tacy['Years'].min()}",
-                            color_discrete_sequence=px.colors.sequential.PuBu, height=650, width=600)
-        st.plotly_chart(fig_count)
-
-    col1,col2 = st.columns(2)
-    with col1:
-
-        url = "https://gist.githubusercontent.com/jbrobst/56c13bbbf9d97d187fea01ca62ea5112/raw/e388c4cae20aa53cb5090210a42ebb9b765c0a36/india_states.geojson"
-        response = requests.get(url)
-        states_name = []
-        data1 = json.loads(response.content)
-        for feature in data1["features"]:
-            states_name.append(feature["properties"]["ST_NM"])
-
-        states_name.sort()
-
-        fig_india_1 = px.choropleth(tacyg, geojson = data1, locations = "States", featureidkey = "properties.ST_NM",
-                                    color = "Transaction_amount", color_continuous_scale = "Rainbow",
-                                    range_color = (tacyg["Transaction_amount"].min(),tacyg["Transaction_amount"].max() ),
-                                    hover_name = "States", title = f"Q{quarter}: TRANSACTION AMOUNT FOR THE YEAR {tacy['Years'].min()}",
-                                    fitbounds="locations",height = 600, width = 600)
-        
-        fig_india_1.update_geos(visible = False)
-        st.plotly_chart(fig_india_1)
-
-    with col2:
-
-        fig_india_2 = px.choropleth(tacyg, geojson = data1, locations = "States", featureidkey = "properties.ST_NM",
-                                    color = "Transaction_count", color_continuous_scale = "Rainbow",
-                                    range_color = (tacyg["Transaction_count"].min(),tacyg["Transaction_count"].max() ),
-                                    hover_name = "States", title = f"Q{quarter}: TRANSACTION COUNT FOR THE YEAR {tacy['Years'].min()}",
-                                    fitbounds="locations",height = 600, width = 600)
-        
-        fig_india_2.update_geos(visible = False)
-        st.plotly_chart(fig_india_2)
-
-    return tacy
-
-#-----------------------------------------------FUNCTION FOR AGGREGATED TRANSACTION USING TRANSACTION TYPE------------------------------
-def Agg_trans_trans_type(df,state):
-
-    tacy = df[df["States"] == state]
-    tacy.reset_index(drop=True, inplace = True)
-    
-    tacyg = tacy.groupby("Transaction_type")[["Transaction_count","Transaction_amount"]].sum()
-    tacyg.reset_index(inplace=True)
-    st.write(f"{state.upper()}: TRANSACTION TYPE DETAILS")
-    st.dataframe(tacyg)
-    col1,col2 = st.columns(2)
-    with col1:
-        fig_pie_1 = px.pie(data_frame=tacyg, names="Transaction_type", values="Transaction_amount",
-                        width=600, title=f"{state.upper()}: TRANSACTION TYPE AND AMOUNT", hole=0.5)
-        st.plotly_chart(fig_pie_1)
-    with col2:
-        fig_pie_2 = px.pie(data_frame=tacyg, names="Transaction_type", values="Transaction_count",
-                        width=600, title=f"{state.upper()}: TRANSACTION TYPE AND COUNT", hole=0.5)
-        st.plotly_chart(fig_pie_2)
-
-
-#--------------------------FUNCTION FOR AGGREGATED USER ANALYSIS FOR BRANDS AND TRANSACTION COUNT YEARLY----------------------------
-def Agg_user_plot_1(df,year):
-    aguy= df[df["Years"] == year]
-    aguy.reset_index(drop=True, inplace=True)
-    
-    aguyg =pd.DataFrame(aguy.groupby("Brands")["Transaction_count"].sum())
-    aguyg.reset_index(inplace=True)
-    col1,col2 = st.columns(2)
-    with col2:
-        st.write(f"TRANSACTION COUNT OF BRANDS FOR THE YEAR {year}")
-        st.dataframe(aguyg,use_container_width=True,)
-       
-    with col1:   
-        fig_bar_1 = px.bar(aguyg, x = "Brands", y = "Transaction_count", title=f"TRANSACTION COUNT OF BRANDS FOR THE YEAR {year}",
-                        width = 1500, color_discrete_sequence= px.colors.sequential.Bluyl_r, hover_name="Brands")
-        st.plotly_chart(fig_bar_1)
-
-    return aguy
-
-#--------------------------FUNCTION FOR AGGREGATED USER ANALYSIS FOR BRANDS AND TRANSACTION COUNT QUARTERLY----------------------------
-
-def Agg_user_plot_2(df,quarter):
-    aguyq= df[df["Quarter"] == quarter]
-    aguyq.reset_index(drop=True, inplace=True)
-
-    aguyqg=pd.DataFrame(aguyq.groupby("Brands")["Transaction_count"].sum())
-    aguyqg.reset_index(inplace=True)
-
-    col1,col2 = st.columns(2)
-    with col2:
-        st.write(f"Q{quarter}: TRANSACTION COUNT OF BRANDS")
-        st.dataframe(aguyqg,use_container_width=True,)
-       
-    with col1:
-        fig_bar_1 = px.bar(aguyqg, x = "Brands", y = "Transaction_count", title=f"Q{quarter}: TRANSACTION COUNT OF BRANDS",
-                            width = 1000, color_discrete_sequence= px.colors.sequential.Bluyl_r, hover_name="Brands")
-        st.plotly_chart(fig_bar_1)
-
-    return aguyq
-
-#--------------------------FUNCTION FOR AGGREGATED USER ANALYSIS PERCENTAGE FOR BRANDS AND TRANSACTION COUNT STATE WISE----------------------------
-def Agg_user_plot_3(df, state):
-    auyqs= df[df["States"]== state]
-    auyqs.reset_index(drop=True,inplace=True)
-
-    auyqsg=pd.DataFrame(auyqs.groupby("Brands")["Percentage"].sum())
-    auyqsg.reset_index(inplace=True)
-    
-    col1,col2 = st.columns(2)
-    with col2:
-        st.write(f"{state.upper()}: PERCENTAGE OF BRANDS")
-        st.dataframe(auyqsg,use_container_width=True,)
-       
-    with col1:
-        fig_line_1 = px.line(auyqs, x= "Brands", y = "Transaction_count", hover_data= "Percentage",
-                            title = f"{state.upper()}: PERCENTAGE OF BRANDS", width=1000, markers = True)
-
-        st.plotly_chart(fig_line_1)
-    
-
-#-----------------------------FUNCTION FOR MAP INSURANCE TRANSACTION AMOUNT AND COUNT DISTRICT WISE-------------------------------------------------------
-def map_ins_dist(df,state):
-
-    tacy = df[df["States"] == state]
-    tacy.reset_index(drop=True, inplace = True)
-
-    tacyg = tacy.groupby("Districts")[["Transaction_count","Transaction_amount"]].sum()
-    tacyg.reset_index(inplace=True)
-
-    st.write(f"{state.upper()}: DISTRICT WISE TRANSACTION DETAILS")
-    st.dataframe(tacyg)
-    col1,col2 = st.columns(2)
-    with col1:
-        fig_bar_1 = px.bar(tacyg, x= "Transaction_amount", y = "Districts", orientation="h",height=600,
-                        title=f"{state.upper()}: DISTRICT WISE TRANSACTION AMOUNT",
-                        color_discrete_sequence= px.colors.sequential.Mint_r)
-        st.plotly_chart(fig_bar_1)
-    with col2:
-        fig_bar_2 = px.bar(tacyg, x= "Transaction_count", y = "Districts", orientation="h", height=600,
-                        title=f"{state.upper()}: DISTRICT WISE TRANSACTION COUNT",
-                        color_discrete_sequence= px.colors.sequential.Burg_r)
-        st.plotly_chart(fig_bar_2)
-
-
-#-------------------------------------FUNCTION FOR MAP USERS REGISTERED USER AND APPOPENS STATE WISE YEARLY-----------------------------------------
-def map_user_plot_1(df,year):
-    muy= df[df["Years"] == year]
-    muy.reset_index(drop=True, inplace=True)
-    
-    muyg =muy.groupby("States")[["RegisteredUsers", "AppOpens"]].sum()
-    muyg.reset_index(inplace=True)
-    col1,col2 = st.columns(2)
-    with col2:
-        st.write(f" APPOPENS OF REGISTERED USERS IN {year}")
-        st.dataframe(muyg,use_container_width=True)
-    with col1:
-        fig_line_1 = px.line(muyg, x= "States", y = ["RegisteredUsers", "AppOpens"] ,
-                                title =f" APPOPENS OF REGISTERED USERS IN {year}", width=800, height=600, markers = True)
-
-        st.plotly_chart(fig_line_1)
-
-    return muy
-
-
-#-------------------------------------FUNCTION FOR MAP USERS REGISTERED USER AND APPOPENS STATE WISE QUARTELY-----------------------------------------
-def map_user_plot_2(df,quarter):
-    muyq= df[df["Quarter"] == quarter]
-    muyq.reset_index(drop=True, inplace=True)
-    
-    muyqg =muyq.groupby("States")[["RegisteredUsers", "AppOpens"]].sum()
-    muyqg.reset_index(inplace=True)
-    col1,col2 = st.columns(2)
-    with col2:
-
-        st.dataframe(muyqg,use_container_width=True)
-    with col1:
-        fig_line_1 = px.line(muyqg, x= "States", y = ["RegisteredUsers", "AppOpens"] ,
-                                title =f"Q{quarter}:APPOPENS OF REGISTERED USERS IN {df['Years'].min()}", width=700, height=600, markers = True,
-                                color_discrete_sequence=px.colors.sequential.Rainbow_r)
-
-        st.plotly_chart(fig_line_1)
-
-    return muyq
-
-
-
-#-------------------------------------FUNCTION FOR MAP USERS REGISTERED USER AND APPOPENS BY DISTRICTS-----------------------------------------
-def map_user_plot_3(df,states):
-    muyqs= df[df["States"] == states]
-    muyqs.reset_index(drop=True, inplace=True)
-    
-    muyqsg =muyqs.groupby("Districts")[["RegisteredUsers", "AppOpens"]].sum()
-    muyqsg.reset_index(inplace=True)
-    st.write(f"{states.upper()}: REGISTERED USERS AND APPOPENS")
-    st.dataframe(muyqsg)
-    col1,col2 = st.columns(2)
-    with col1:
-        fig_bar_1 = px.bar(muyqs, x= "RegisteredUsers",y="Districts",orientation="h",
-                        title=f"{states.upper()}: REGISTERED USERS", height=800, color_discrete_sequence= px.colors.sequential.Rainbow_r)
-
-        st.plotly_chart(fig_bar_1)
-    with col2:
-        fig_bar_2 = px.bar(muyqs, x= "AppOpens",y="Districts",orientation="h",
-                        title=f"{states.upper()}: APPOPENS", height=800, color_discrete_sequence= px.colors.sequential.Rainbow)
-
-        st.plotly_chart(fig_bar_2)
-
-
-#------------------------------------FUNCTION FOR TOP INSURANCE TRANSACTION AMOUNT AND COUNT BY QUARTER AND PINCODE-------------------------------
-def top_ins_plot_1(df,state):
-    tiy= df[df["States"] ==state]
-    tiy.reset_index(drop=True, inplace=True)
-
-    tiyg =tiy.groupby("Pincode")[["Transaction_count", "Transaction_amount"]].sum()
-    tiyg.reset_index(inplace=True)
-    
-    st.write("PINCODE WISE TRANSACTION DETAILS")
-    st.dataframe(tiyg)
-    col1,col2 = st.columns(2)
-    with col1:
-        fig_bar_1 = px.bar(tiy, x= "Quarter",y="Transaction_amount", hover_data="Pincode",
-                        title="TRANSACTION AMOUNT", height=650, width=600, color_discrete_sequence= px.colors.sequential.GnBu_r)
-    
-        st.plotly_chart(fig_bar_1)
-    with col2:
-        fig_bar_2 = px.bar(tiy, x= "Quarter",y="Transaction_count", hover_data="Pincode",
-                        title="TRANSACTION COUNT", height=650, width=600, color_discrete_sequence= px.colors.sequential.Cividis_r)
-
-        st.plotly_chart(fig_bar_2)
-
-
-#------------------------------------FUNCTION FOR TOP USERS REGISTERED QUARTELY USING STATES---------------------------------------------
-def top_user_plot_1(df,year):
-    tuy= df[df["Years"] == year]
-    tuy.reset_index(drop=True, inplace=True)
-
-    tuyg =pd.DataFrame(tuy.groupby(["States","Quarter"])["RegisteredUsers"].sum())
-    tuyg.reset_index(inplace=True)
-    
-    fig_plot_1 = px.bar(tuyg, x = "States", y = "RegisteredUsers", color = "Quarter", width=1000, height=800,
-                        color_discrete_sequence=px.colors.sequential.Burgyl_r, hover_name= "States",
-                        title= f"REGISTERED USERS FOR THE {year}")
-    st.plotly_chart(fig_plot_1)
-
-    return tuy
-
-
-#-------------------------------------FUNCTION FOR TOP USERS REGISTERED QUARTELY BY PINCODES--------------------------------------------
-def top_user_plot_2(df,state):
-    tuys= df[df["States"] == state]
-    tuys.reset_index(drop=True, inplace=True)
-
-    fig_plot_1 = px.bar(tuys, x = "Quarter", y="RegisteredUsers", title= "REGISTERED USERS, QUARTER AND PINCODES",
-                        width=1000, height=800, color="RegisteredUsers", hover_data="Pincode",
-                        color_continuous_scale=px.colors.sequential.Magenta_r)
-    st.plotly_chart(fig_plot_1)
-
-#---------------------------------------CHARTS FOR TOP TEN, LAST TEN AND PERCENTAGE OF TRANSACTION AMOUNT----------------------------------------
-def top_chart_trans_amt(table_name):
-    mydb = psycopg2.connect(host = "localhost",
-                            port = "5432",
-                            user = "postgres",
-                            password = "karthik",
-                            database = "phonepe")
-
-    cursor = mydb.cursor()
-    #plot_1
-    query_1 = f'''SELECT states, SUM(transaction_amount) AS transaction_amount
-                FROM {table_name}
-                GROUP BY states
-                ORDER BY transaction_amount DESC
-                LIMIT 10;'''
-
-    cursor.execute(query_1)
-    table_1=cursor.fetchall()
-    mydb.commit()
-
-    df_1 = pd.DataFrame(table_1, columns=("states", "transaction_amount")) 
-
-    col1,col2 = st.columns(2)
-    with col1:
-        fig_df_1 = px.bar(df_1, x="states", y="transaction_amount", title = "TOP 10 STATES: TRANSACTION AMOUNT", hover_name= "states",
-                                color_discrete_sequence=px.colors.sequential.Agsunset, height=650, width=600)
-        st.plotly_chart(fig_df_1)
-
-
-    #plot_2
-    query_2 = f'''SELECT states, SUM(transaction_amount) AS transaction_amount
-                FROM {table_name}
-                GROUP BY states
-                ORDER BY transaction_amount
-                LIMIT 10;'''
-
-    cursor.execute(query_2)
-    table_2=cursor.fetchall()
-    mydb.commit()
-
-    df_2 = pd.DataFrame(table_2, columns=("states", "transaction_amount")) 
-
-    with col2:
-        fig_df_2 = px.bar(df_2, x="states", y="transaction_amount", title = " LAST 10 STATES: TRANSACTION AMOUNT", hover_name= "states",
-                                color_discrete_sequence=px.colors.sequential.Agsunset_r, height=650, width=600)
-        st.plotly_chart(fig_df_2)
-
-    #plot_3
-    query_3 = f'''SELECT states, AVG(transaction_amount) AS transaction_amount
-                FROM {table_name}
-                GROUP BY states
-                ORDER BY transaction_amount;'''
-
-    cursor.execute(query_3)
-    table_3=cursor.fetchall()
-    mydb.commit()
-
-    df_3 = pd.DataFrame(table_3, columns=("states", "transaction_amount")) 
-
-    fig_df_3 = px.bar(df_3, y="states", x="transaction_amount", title = "AVERAGE TRANSACTION AMOUNT BY STATES", hover_name= "states",
-                            orientation="h",color_discrete_sequence=px.colors.sequential.Bluered_r, height=800, width=1000)
-    st.plotly_chart(fig_df_3)
-
-
-#---------------------------------------CHARTS FOR TOP TEN, LAST TEN AND PERCENTAGE OF TRANSACTION COUNT----------------------------------------
-def top_chart_trans_count(table_name):
-    mydb = psycopg2.connect(host = "localhost",
-                            port = "5432",
-                            user = "postgres",
-                            password = "karthik",
-                            database = "phonepe")
-
-    cursor = mydb.cursor()
-    #plot_1
-    query_1 = f'''SELECT states, SUM(transaction_count) AS transaction_count
-                FROM {table_name}
-                GROUP BY states
-                ORDER BY transaction_count DESC
-                LIMIT 10;'''
-
-    cursor.execute(query_1)
-    table_1=cursor.fetchall()
-    mydb.commit()
-
-    df_1 = pd.DataFrame(table_1, columns=("states", "transaction_count")) 
-
-    col1,col2 = st.columns(2)
-    with col1:
-        fig_df_1 = px.bar(df_1, x="states", y="transaction_count", title = " TOP 10 STATES: TRANSACTION COUNT", hover_name= "states",
-                                color_discrete_sequence=px.colors.sequential.Agsunset, height=650, width=600)
-        st.plotly_chart(fig_df_1)
-
-
-    #plot_2
-    query_2 = f'''SELECT states, SUM(transaction_count) AS transaction_count
-                FROM {table_name}
-                GROUP BY states
-                ORDER BY transaction_count
-                LIMIT 10;'''
-
-    cursor.execute(query_2)
-    table_2=cursor.fetchall()
-    mydb.commit()
-
-    df_2 = pd.DataFrame(table_2, columns=("states", "transaction_count")) 
-
-    with col2:
-        fig_df_2 = px.bar(df_2, x="states", y="transaction_count", title = " LAST 10 STATES: TRANSACTION COUNT", hover_name= "states",
-                                color_discrete_sequence=px.colors.sequential.Agsunset_r, height=650, width=600)
-        st.plotly_chart(fig_df_2)
-
-    #plot_3
-    query_3 = f'''SELECT states, AVG(transaction_count) AS transaction_count
-                FROM {table_name}
-                GROUP BY states
-                ORDER BY transaction_count;'''
-
-    cursor.execute(query_3)
-    table_3=cursor.fetchall()
-    mydb.commit()
-
-    df_3 = pd.DataFrame(table_3, columns=("states", "transaction_count")) 
-
-    fig_df_3 = px.bar(df_3, y="states", x="transaction_count", title = " AVERAGE TRANSACTION COUNT BY STATES", hover_name= "states",
-                            orientation="h",color_discrete_sequence=px.colors.sequential.Bluered_r, height=800, width=1000)
-    st.plotly_chart(fig_df_3)
-
-
-
-#---------------------------------------CHARTS FOR TOP TEN, LAST TEN AND PERCENTAGE OF REGISTERED USERS DISTRICT WISE----------------------------------------
-def top_chart_registered_user(table_name, state):
-    mydb = psycopg2.connect(host = "localhost",
-                            port = "5432",
-                            user = "postgres",
-                            password = "karthik",
-                            database = "phonepe")
-
-    cursor = mydb.cursor()
-    #plot_1
-    query_1 = f'''SELECT districts,SUM(registeredusers) AS registeredusers
-                FROM {table_name}
-                WHERE states = '{state}'
-                GROUP BY districts
-                ORDER BY registeredusers DESC
-                LIMIT 10;'''
-
-    cursor.execute(query_1)
-    table_1=cursor.fetchall()
-    mydb.commit()
-
-    df_1 = pd.DataFrame(table_1, columns=("districts", "registeredusers")) 
-
-    col1,col2 = st.columns(2)
-    with col1:
-        fig_df_1 = px.bar(df_1, x="districts", y="registeredusers", title = "TOP 10 DISTRICTS: REGISTERED USERS", hover_name= "districts",
-                                color_discrete_sequence=px.colors.sequential.Agsunset, height=650, width=600)
-        st.plotly_chart(fig_df_1)
-
-
-    #plot_2
-    query_2 = f'''SELECT districts,SUM(registeredusers) AS registeredusers
-                FROM {table_name}
-                WHERE states = '{state}'
-                GROUP BY districts
-                ORDER BY registeredusers
-                LIMIT 10;'''
-
-    cursor.execute(query_2)
-    table_2=cursor.fetchall()
-    mydb.commit()
-
-    df_2 = pd.DataFrame(table_2, columns=("districts", "registeredusers")) 
-
-    with col2:
-        fig_df_2 = px.bar(df_2, x="districts", y="registeredusers", title = " LAST 10 DISTRICTS: REGISTERED USER", hover_name= "districts",
-                                color_discrete_sequence=px.colors.sequential.Agsunset_r, height=650, width=600)
-        st.plotly_chart(fig_df_2)
-
-    #plot_3
-    query_3 = f'''SELECT districts,AVG(registeredusers) AS registeredusers
-                    FROM {table_name}
-                    WHERE states = '{state}'
-                    GROUP BY districts
-                    ORDER BY registeredusers;'''
-
-    cursor.execute(query_3)
-    table_3=cursor.fetchall()
-    mydb.commit()
-
-    df_3 = pd.DataFrame(table_3, columns=("districts", "registeredusers")) 
-
-    fig_df_3 = px.bar(df_3, y="districts", x="registeredusers", title = " AVERAGE REGISTERED USER BY DISTRICTS", hover_name= "districts",
-                            orientation="h",color_discrete_sequence=px.colors.sequential.Bluered_r, height=800, width=1000)
-    st.plotly_chart(fig_df_3)
-
-
-
-#---------------------------------------CHARTS FOR TOP TEN, LAST TEN AND PERCENTAGE OF APP OPENS DISTRICT WISE----------------------------------------
-def top_chart_appopens(table_name, state):
-    mydb = psycopg2.connect(host = "localhost",
-                            port = "5432",
-                            user = "postgres",
-                            password = "karthik",
-                            database = "phonepe")
-
-    cursor = mydb.cursor()
-    #Plot_1
-    query_1 = f'''SELECT districts,SUM(appopens) AS appopens
-                FROM {table_name}
-                WHERE states = '{state}'
-                GROUP BY districts
-                ORDER BY appopens DESC
-                LIMIT 10;'''
-
-    cursor.execute(query_1)
-    table_1=cursor.fetchall()
-    mydb.commit()
-
-    df_1 = pd.DataFrame(table_1, columns=("districts", "appopens")) 
-    
-    col1,col2 = st.columns(2)
-    with col1:
-        fig_df_1 = px.bar(df_1, x="districts", y="appopens", title = "TOP 10 OF APP OPENS", hover_name= "districts",
-                                color_discrete_sequence=px.colors.sequential.Agsunset, height=650, width=600)
-        st.plotly_chart(fig_df_1)
-
-
-    #Plot_2
-    query_2 = f'''SELECT districts,SUM(appopens) AS appopens
-                FROM {table_name}
-                WHERE states = '{state}'
-                GROUP BY districts
-                ORDER BY appopens
-                LIMIT 10;'''
-
-    cursor.execute(query_2)
-    table_2=cursor.fetchall()
-    mydb.commit()
-
-    df_2 = pd.DataFrame(table_2, columns=("districts", "appopens")) 
-
-    with col2:
-        fig_df_2 = px.bar(df_2, x="districts", y="appopens", title = " LAST 10 OF APP OPENS", hover_name= "districts",
-                                color_discrete_sequence=px.colors.sequential.Agsunset_r, height=650, width=600)
-        st.plotly_chart(fig_df_2)
-
-    #plot_3
-    query_3 = f'''SELECT districts,AVG(appopens) AS appopens
-                    FROM {table_name}
-                    WHERE states = '{state}'
-                    GROUP BY districts
-                    ORDER BY appopens;'''
-
-    cursor.execute(query_3)
-    table_3=cursor.fetchall()
-    mydb.commit()
-
-    df_3 = pd.DataFrame(table_3, columns=("districts", "appopens")) 
-
-    fig_df_3 = px.bar(df_3, y="districts", x="appopens", title = " AVERAGE OF APP OPENS", hover_name= "districts",
-                            orientation="h",color_discrete_sequence=px.colors.sequential.Bluered_r, height=800, width=1000)
-    st.plotly_chart(fig_df_3)
-
-
-
-#---------------------------------------CHARTS FOR TOP TEN, LAST TEN AND PERCENTAGE OF REGISTERED USERS STATE WISE----------------------------------------
-def top_chart_registered_users(table_name):
-    mydb = psycopg2.connect(host = "localhost",
-                            port = "5432",
-                            user = "postgres",
-                            password = "karthik",
-                            database = "phonepe")
-
-    cursor = mydb.cursor()
-    #Plot_1
-    query_1 = f'''SELECT states,SUM(registeredusers) AS registeredusers
-                    FROM {table_name}
-                    GROUP BY states
-                    ORDER BY registeredusers DESC
-                    LIMIT 10;'''
-
-    cursor.execute(query_1)
-    table_1=cursor.fetchall()
-    mydb.commit()
-
-    df_1 = pd.DataFrame(table_1, columns=("states", "registeredusers")) 
-
-    col1,col2 = st.columns(2)
-    with col1:
-        fig_df_1 = px.bar(df_1, x="states", y="registeredusers", title = "TOP 10 OF REGISTERED USERS", hover_name= "states",
-                                color_discrete_sequence=px.colors.sequential.Agsunset, height=650, width=600)
-        st.plotly_chart(fig_df_1)
-
-
-    #Plot_2
-    query_2 = f'''SELECT states,SUM(registeredusers) AS registeredusers
-                    FROM {table_name}
-                    GROUP BY states
-                    ORDER BY registeredusers
-                    LIMIT 10;'''
-
-    cursor.execute(query_2)
-    table_2=cursor.fetchall()
-    mydb.commit()
-
-    df_2 = pd.DataFrame(table_2, columns=("states", "registeredusers")) 
-
-    with col2:
-        fig_df_2 = px.bar(df_2, x="states", y="registeredusers", title = " LAST 10 OF REGISTERED USERS", hover_name= "states",
-                                color_discrete_sequence=px.colors.sequential.Agsunset_r, height=650, width=600)
-        st.plotly_chart(fig_df_2)
-
-    #Plot_3
-    query_3 = f'''SELECT states,AVG(registeredusers) AS registeredusers
-                    FROM {table_name}
-                    GROUP BY states
-                    ORDER BY registeredusers;'''
-
-    cursor.execute(query_3)
-    table_3=cursor.fetchall()
-    mydb.commit()
-
-    df_3 = pd.DataFrame(table_3, columns=("states", "registeredusers")) 
-
-    fig_df_3 = px.bar(df_3, y="states", x="registeredusers", title = " AVERAGE OF REGISTERED USERS", hover_name= "states",
-                            orientation="h",color_discrete_sequence=px.colors.sequential.Bluered_r, height=800, width=1000)
-    st.plotly_chart(fig_df_3)
-
+    fig.update_layout(
+        width=1200,  
+        height=1500, 
+        margin={"r":0,"t":0,"l":0,"b":0},
+        geo=dict(bgcolor='rgba(0,0,0,0)')
+
+    )
+    return fig
 
 #--------------------------------------------------------STREAMLIT USER INTERFACE----------------------------------------------------
-st.set_page_config(layout='wide')
-st.title("PHONEPE DATA VISUALIZATION AND EXPLORATION")
+st.set_page_config(page_title="PhonePe Pulse Dashboard",layout='wide')
+st.markdown("<h1 style='text-align: center; font-size: 40px'> PHONEPE DATA VISUALIZATION AND EXPLORATION", unsafe_allow_html=True)   
 
 #--------------------------------------------------------OPTION MENU----------------------------------------------------------------
 with st.sidebar:
 
-    select = option_menu("Main Menu",["HOME","DATA EXPLORATION & GEO VISUALIZATION","TOP CHARTS"])
+    select = option_menu(menu_title="DASHBOARD",
+                         options=["ABOUT","DATA EXPLORATION","STATE-WISE-EXPLORE","DATA INSIGHTS"])
 
 #---------------------------------------------------------OPTION: HOME-----------------------------------------------------------
-if select == "HOME":
+if select == "ABOUT":
     
     col1,col2= st.columns(2)
 
@@ -833,370 +298,2214 @@ if select == "HOME":
 
         st.image(Image.open(r"D:\projects\phonepe\payment.png"),width=500)
 
+#---------------------------------------------------------------OPTION: DATA EXPLORATION-------------------------------------------------------------
+if select == "DATA EXPLORATION":
 
-    #---------------------------------------------------------------OPTION: DATA EXPLORATION-------------------------------------------------------------
-elif select == "DATA EXPLORATION & GEO VISUALIZATION":
+    tab1, tab2, tab3 = st.tabs(["Transaction Data", "Insurance Data","User Data"])
 
-    tab1, tab2, tab3 = st.tabs(["Aggregated Analysis", "Map Analysis", "Top Analysis"])
-#---------------------------------------------------------------TAB: AGGREGATED ANALYSIS--------------------------------------------------
-
+#---------------------------------------------------------------TAB: TRANSACTION DATA--------------------------------------------------------------   
+    
     with tab1:
+      
+            
+        st.markdown("<h1 style='text-align: center; font-size: 30px'> All India Transaction Data", unsafe_allow_html=True)    
 
-        method = st.radio("Select the Method",["Insurance Analysis", "Transaction Analysis", "User Analysis"])
+        col1, col2, col3,col4,col5,col6 = st.columns((0.7,0.8,1.5,0.9,0.9,0.9),gap="large")
+        
+        with col1:
+            years = st.selectbox("#### Select Year:", options=Agg_trans_df["Years"].unique())
+        with col2:
+            quarters = st.selectbox("#### Select Quarter:", options=Agg_trans_df["Quarter"].unique())
+        with col3:
+            trans_type = st.selectbox("#### Select Transaction Type (Map View):", options=Agg_trans_df["Transaction_type"].unique())
 
 
-        #----------------------------------------------------RADIO BUTTON: INSURANCE ANALYSIS-----------------------------------------
-        if method == "Insurance Analysis":
 
-            col1,col2 = st.columns(2)
-            with col1:
+        trans_selected_year = Agg_trans_df[(Agg_trans_df['Years'] == years) & 
+                                        (Agg_trans_df['Quarter'] == quarters)]
+        trans_selected_year_dist = map_trans_df[(map_trans_df['Years'] == years) & 
+                                        (map_trans_df['Quarter'] == quarters)]        
+        trans_selected_year_pin = top_trans_df[(top_trans_df['Years'] == years) & 
+                                        (top_trans_df['Quarter'] == quarters)]
+        
+        if trans_selected_year.empty:
+            st.error("#### No data available for the selected year and quarter.")
+            
+        else:
+            trans_selected_year_grouped = trans_selected_year.groupby('States').sum().reset_index().sort_values(by="Transaction_amount", ascending=False)
+            trans_selected_year_grouped['Serial'] = range(1, len(trans_selected_year_grouped) + 1)
+            trans_selected_year_grouped = trans_selected_year_grouped.head(10)
 
-                years= st.slider("Select the Year of Aggregated Insurance",Agg_ins_df["Years"].min(),Agg_ins_df["Years"].max(),Agg_ins_df["Years"].min())
+            total_transactions = trans_selected_year['Transaction_count'].sum()
+            total_payment_value = trans_selected_year['Transaction_amount'].sum()
+
+            avg_transaction_value = total_payment_value / total_transactions
+            total_transactions = format_number(total_transactions)
+            col_map, col_data = st.columns((5, 1.65), gap='large')
+            
+            with col_map:          
+            
+                trans_selected_year_geo = Agg_trans_df[(Agg_trans_df['Years'] == years) & 
+                                                (Agg_trans_df['Quarter'] == quarters) & (Agg_trans_df['Transaction_type'] == trans_type)]
                 
-            tac_Y = transaction_amount_count_Y(Agg_ins_df,years)
+                trans_selected_year_geo.loc[:, 'Transaction_amount'] = trans_selected_year_geo['Transaction_amount'].apply(format_amount)
+                
+                choropleth_map = make_choropleth(trans_selected_year_geo)
+                st.plotly_chart(choropleth_map,use_container_width=True)
 
+            with col_data:
+                st.markdown("<h1 style=' font-size: 40px; color:#05C2DD'>Transactions</h1>", unsafe_allow_html=True)
+                st.write(f'#### All PhonePe transactions (UPI + Cards + Wallets) (Q{quarters}) {years}')
+                st.metric(label="", value=total_transactions,)
+                st.write(f'#### Total Payment Value (Q{quarters}) {years}')
+                st.metric(label='', value=format_amount(total_payment_value),)
+                st.write(f'#### Average Payment Value (Q{quarters}) {years}')
+                st.metric(label='', value=f"₹{avg_transaction_value:,.0f}")   
+                trans_selected_year_grp = trans_selected_year.groupby('Transaction_type').sum().reset_index().sort_values(by="Transaction_amount", ascending=False)
+                trans_selected_year_grp['Serial'] = range(1, len(trans_selected_year_grp) + 1)
+
+                df = pd.DataFrame(trans_selected_year_grp[['Serial', 'Transaction_type', 'Transaction_amount']])
+                df['Transaction_amount']=df['Transaction_amount'].apply(format_amount)
+                st.markdown("***")
+                st.markdown("<h1 style=' font-size: 30px; color:#05C2DD'>Categories</h1>", unsafe_allow_html=True)
+
+                col1, col2 = st.columns(2)
+                
+                for index, row in df.iterrows():
+                    with col1:
+                        st.markdown(f"<p style='font-size:17px;text-align: left'>{row['Transaction_type']}</p>", unsafe_allow_html=True)
+                    with col2:
+                        st.markdown(f"<p style='font-size:18px;text-align: right;font-weight:bold'>{row['Transaction_amount']}</p>", unsafe_allow_html=True)
+                st.markdown("***")
+
+                states_button_clicked = False
+                districts_button_clicked = False
+                postal_codes_button_clicked = False
+                c11, c12, c13 = st.columns((1,1,1.5),gap="small")
+                with c11:
+                    if st.button("# States"):
+                        states_button_clicked = True
+
+                with c12:
+                    if st.button("# Districts"):
+                        districts_button_clicked = True
+
+                with c13:
+                    if st.button("# Postal Codes"):
+                        postal_codes_button_clicked = True                  
+                
+                if states_button_clicked:
+                    st.markdown("<h1 style='font-size: 30px; color:#05C2DD'> Top 10 States", unsafe_allow_html=True)
+                    trans_selected_year_grouped['Transaction_amount'] = trans_selected_year_grouped['Transaction_amount'].apply(format_amount)
+                    df=pd.DataFrame(trans_selected_year_grouped[['Serial', 'States', 'Transaction_amount']])
+                    df.set_index('Serial', inplace=True)
+                    df.columns = ['States', 'Transaction Amount']
+                    st.table(df)
+                    
+
+                if districts_button_clicked:
+                    st.markdown("<h1 style='font-size: 30px; color:#05C2DD'> Top 10 Districts", unsafe_allow_html=True)
+                    trans_selected_year_grouped_dist = trans_selected_year_dist.groupby('Districts').sum().reset_index().sort_values(by="Transaction_amount", ascending=False)
+                    trans_selected_year_grouped_dist['Serial'] = range(1, len(trans_selected_year_grouped_dist) + 1)
+                    trans_selected_year_grouped_dist = trans_selected_year_grouped_dist.head(10)
+                    trans_selected_year_grouped_dist['Transaction_amount'] = trans_selected_year_grouped_dist['Transaction_amount'].apply(format_amount)
+                    df=pd.DataFrame(trans_selected_year_grouped_dist[['Serial', 'Districts', 'Transaction_amount']])
+                    df.set_index('Serial', inplace=True)
+                    df.columns = ['Districts', 'Transaction Amount']
+                    st.table(df)
+                    
+                if postal_codes_button_clicked:
+                    st.markdown("<h1 style='font-size: 30px; color:#05C2DD'>Top 10 Postal Codes", unsafe_allow_html=True)
+                    trans_selected_year_grouped_pin = trans_selected_year_pin.groupby('Pincode').sum().reset_index().sort_values(by="Transaction_amount", ascending=False)
+                    trans_selected_year_grouped_pin['Serial'] = range(1, len(trans_selected_year_grouped_pin) + 1)
+                    trans_selected_year_grouped_pin = trans_selected_year_grouped_pin.head(10)
+                    trans_selected_year_grouped_pin['Pincode'] = trans_selected_year_grouped_pin['Pincode']
+                    trans_selected_year_grouped_pin['Transaction_amount'] = trans_selected_year_grouped_pin['Transaction_amount'].apply(format_amount)
+                    df=pd.DataFrame(trans_selected_year_grouped_pin[['Serial', 'Pincode', 'Transaction_amount']])
+                    df.set_index('Serial', inplace=True)
+                    df.columns = ['Postal Codes', 'Transaction Amount']
+                    st.table(df) 
+
+
+#-----------------------------------------------------------------TAB2: INSURANCE DATA----------------------------------------------------------                   
+
+    with tab2:  
+        st.markdown("<h1 style='text-align: center; font-size: 30px'> All India Insurance Data", unsafe_allow_html=True)
+
+        col1, col2, co3,col4,col5,col6 = st.columns((0.7,0.8,1.5,1,1,1),gap="large")
+        with col1:
+            years = st.selectbox("#### Select Year:", options=Agg_ins_df["Years"].unique())
+        with col2:
+            quarters = st.selectbox("#### Select Quarter:", options=Agg_ins_df["Quarter"].unique())
+
+
+        ins_selected_year = Agg_ins_df[(Agg_ins_df['Years'] == years) & 
+                                        (Agg_ins_df['Quarter'] == quarters)]
+        ins_selected_year_dist = map_ins_df[(map_ins_df['Years'] == years) & 
+                                        (map_ins_df['Quarter'] == quarters)]        
+        ins_selected_year_pin = top_ins_df[(top_ins_df['Years'] == years) & 
+                                        (top_ins_df['Quarter'] == quarters)]
+        
+        if ins_selected_year.empty:
+            st.error("#### No data available for the selected year and quarter.")
+            
+        else:
+            ins_selected_year_grouped = ins_selected_year.groupby('States').sum().reset_index().sort_values(by="Transaction_amount", ascending=False)
+            ins_selected_year_grouped['Serial'] = range(1, len(ins_selected_year_grouped) + 1)
+            ins_selected_year_grouped = ins_selected_year_grouped.head(10)
+
+            total_transactions = ins_selected_year['Transaction_count'].sum()
+            total_payment_value = ins_selected_year['Transaction_amount'].sum()
+            avg_transaction_value = total_payment_value / total_transactions
+            total_transactions = format_number(total_transactions)
+            col_map, col_data = st.columns((5, 1.65), gap='large') 
+            
+            with col_map:
+                                         
+                choropleth_map = ins_choropleth(ins_selected_year)
+                st.plotly_chart(choropleth_map,use_container_width=True)
+
+            with col_data:
+                st.markdown("<h1 style=' font-size: 40px; color:#05C2DD'>Insurance</h1>", unsafe_allow_html=True)
+                st.write(f'#### All India Insurance Policies Purchased (Nos.) ****(Q{quarters}) {years}****')
+                st.metric(label='', value=total_transactions)
+                st.write(f'#### Total Premium Value (Q{quarters}) {years}')
+                st.metric(label='', value=format_amount(total_payment_value))
+                st.write(f'#### Average Premium Value (Q{quarters}) {years}')
+                st.metric(label='', value=f"₹{avg_transaction_value:,.0f}")
+                st.markdown('***')
+                states_button_clicked = False
+                districts_button_clicked = False
+                postal_codes_button_clicked = False
+                c11, c12, c13 = st.columns((1,1,1.5),gap="small")
+                with c11:
+                    if st.button("# States "):
+                        states_button_clicked = True
+
+                with c12:
+                    if st.button("# Districts "):
+                        districts_button_clicked = True
+
+                with c13:
+                    if st.button("# Postal Codes "):
+                        postal_codes_button_clicked = True                
+                
+                if states_button_clicked:
+                    st.markdown("<h1 style='font-size: 30px; color:#05C2DD'> Top 10 States", unsafe_allow_html=True)
+                    ins_selected_year_grouped['Transaction_amount'] = ins_selected_year_grouped['Transaction_amount'].apply(format_amount)
+                    df=pd.DataFrame(ins_selected_year_grouped[['Serial', 'States', 'Transaction_amount']])
+                    df.set_index('Serial', inplace=True)
+                    df.columns = ['State', 'Premium Amount']
+                    st.table(df)
+ 
+                if districts_button_clicked:
+                    st.markdown("<h1 style='font-size: 30px; color:#05C2DD'> Top 10 Districts", unsafe_allow_html=True)
+                    ins_selected_year_grouped_dist = ins_selected_year_dist.groupby('Districts').sum().reset_index().sort_values(by="Transaction_amount", ascending=False)
+                    ins_selected_year_grouped_dist['Serial'] = range(1, len(ins_selected_year_grouped_dist) + 1)
+                    ins_selected_year_grouped_dist = ins_selected_year_grouped_dist.head(10)
+                    ins_selected_year_grouped_dist['Transaction_amount'] = ins_selected_year_grouped_dist['Transaction_amount'].apply(format_amount)
+                    df=pd.DataFrame(ins_selected_year_grouped_dist[['Serial', 'Districts', 'Transaction_amount']])
+                    df.set_index('Serial', inplace=True)
+                    df.columns = ['Districts', 'Premium Amount']
+                    st.table(df)
+                    
+                if postal_codes_button_clicked:
+                    st.markdown("<h1 style='font-size: 30px; color:#05C2DD'>Top 10 Postal Codes", unsafe_allow_html=True)
+                    ins_selected_year_grouped_pin = ins_selected_year_pin.groupby('Pincode').sum().reset_index().sort_values(by="Transaction_amount", ascending=False)
+                    ins_selected_year_grouped_pin['Serial'] = range(1, len(ins_selected_year_grouped_pin) + 1)
+                    ins_selected_year_grouped_pin = ins_selected_year_grouped_pin.head(10)
+                    ins_selected_year_grouped_pin['Pincode'] = ins_selected_year_grouped_pin['Pincode']
+                    ins_selected_year_grouped_pin['Transaction_amount'] = ins_selected_year_grouped_pin['Transaction_amount'].apply(format_amount)
+                    df=pd.DataFrame(ins_selected_year_grouped_pin[['Serial', 'Pincode', 'Transaction_amount']])
+                    df.set_index('Serial', inplace=True)
+                    df.columns = ['Postal Codes', 'Premium Amount']
+                    st.table(df)
+
+#-----------------------------------------------------------------TAB3: USER DATA------------------------------------------------------------                    
+
+
+    with tab3:
+        st.markdown("<h1 style='text-align: center; font-size: 40px'> All India User Data", unsafe_allow_html=True)
+
+        col1, col2, co3,col4,col5,col6 = st.columns((0.7,0.8,1.5,1,1,1),gap="large")
+        with col1:
+            years = st.selectbox("#### Select Year: ", options=map_user_df["Years"].unique())
+        with col2:
+            quarters = st.selectbox("#### Select Quarter: ", options=map_user_df["Quarter"].unique())
+
+        user_selected_year = Agg_user_df[(Agg_user_df['Years'] == years) & 
+                                        (Agg_user_df['Quarter'] == quarters)]
+        user_selected_year_dist = map_user_df[(map_user_df['Years'] == years) & 
+                                        (map_user_df['Quarter'] == quarters)]        
+        user_selected_year_pin = top_user_df[(top_user_df['Years'] == years) & 
+                                        (top_user_df['Quarter'] == quarters)]
+        
+        if user_selected_year_dist.empty:
+            st.error("#### No data available for the selected year and quarter.")
+            
+        else:
+            user_selected_year_grouped = user_selected_year_dist.groupby('States').sum().reset_index().sort_values(by="RegisteredUsers", ascending=False)
+            user_selected_year_group = user_selected_year.groupby('States').sum().reset_index().sort_values(by="Transaction_count", ascending=False)
+            user_selected_year_grouped['Serial'] = range(1, len(user_selected_year_grouped) + 1)
+            user_selected_year_grouped1 = user_selected_year_grouped.head(10)
+
+            total_user = user_selected_year_group['Transaction_count'].sum()
+            total_app_opens = user_selected_year_grouped['AppOpens'].sum()
+            total_user = format_number(total_user)
+            total_app_opens = format_number(total_app_opens)
+
+            col_map, col_data = st.columns((5, 1.65), gap='large') 
+            
+            with col_map:
+                choropleth_map = user_choropleth(user_selected_year_grouped)
+                st.plotly_chart(choropleth_map,use_container_width=True)
+
+            with col_data:
+                st.markdown("<h1 style=' font-size: 40px; color:#05C2DD'>Users</h1>", unsafe_allow_html=True)
+                st.write(f'#### Registered PhonePe users (Q{quarters}) {years}')
+                st.metric(label='',value=total_user)
+                st.write(f'#### PhonePe app opens in (Q{quarters}) {years}')
+                st.metric(label='',value=total_app_opens)
+                
+                st.markdown('***')
+                
+                states_button_clicked = False
+                districts_button_clicked = False
+                postal_codes_button_clicked = False
+                c11, c12, c13 = st.columns((1,1,1.5),gap="small")
+                with c11:
+                    if st.button("# States  "):
+                        states_button_clicked = True
+
+                with c12:
+                    if st.button("# Districts  "):
+                        districts_button_clicked = True
+
+                with c13:
+                    if st.button("# Postal Codes  "):
+                        postal_codes_button_clicked = True
+                
+                if states_button_clicked:
+                    st.markdown("<h1 style='font-size: 30px; color:#05C2DD'> Top 10 States", unsafe_allow_html=True)
+                    user_selected_year_grouped1['RegisteredUsers']=user_selected_year_grouped1['RegisteredUsers'].apply(format_number)
+                    df=pd.DataFrame(user_selected_year_grouped1[['Serial', 'States', 'RegisteredUsers']])
+                    df.set_index('Serial', inplace=True)
+                    df.columns = ['States', 'Registered User']
+                    st.table(df)
+ 
+                if districts_button_clicked:
+                    st.markdown("<h1 style='font-size: 30px; color:#05C2DD'> Top 10 Districts", unsafe_allow_html=True)
+                    user_selected_year_grouped_dist = user_selected_year_dist.groupby('Districts').sum().reset_index().sort_values(by="RegisteredUsers", ascending=False)
+                    user_selected_year_grouped_dist['Serial'] = range(1, len(user_selected_year_grouped_dist) + 1)
+                    user_selected_year_grouped_dist = user_selected_year_grouped_dist.head(10)
+                    user_selected_year_grouped_dist['RegisteredUsers']=user_selected_year_grouped_dist['RegisteredUsers'].apply(format_number)
+                    df=pd.DataFrame(user_selected_year_grouped_dist[['Serial', 'Districts', 'RegisteredUsers']])
+                    df.set_index('Serial', inplace=True)
+                    df.columns = ['Districts', 'Registered User']
+                    st.table(df)
+                    
+                if postal_codes_button_clicked:
+                    st.markdown("<h1 style='font-size: 30px; color:#05C2DD'>Top 10 Postal Codes", unsafe_allow_html=True)
+                    user_selected_year_grouped_pin = user_selected_year_pin.groupby('Pincode').sum().reset_index().sort_values(by="RegisteredUsers", ascending=False)
+                    user_selected_year_grouped_pin['Serial'] = range(1, len(user_selected_year_grouped_pin) + 1)
+                    user_selected_year_grouped_pin = user_selected_year_grouped_pin.head(10)
+                    user_selected_year_grouped_pin['RegisteredUsers']=user_selected_year_grouped_pin['RegisteredUsers'].apply(format_number)
+                    user_selected_year_grouped_pin['Pincode'] = user_selected_year_grouped_pin['Pincode']
+                    df=pd.DataFrame(user_selected_year_grouped_pin[['Serial', 'Pincode', 'RegisteredUsers']])
+                    df.set_index('Serial', inplace=True)
+                    df.columns = ['Postal Codes', 'Registered User']
+                    st.table(df)      
+                
+                st.markdown("<h1 style='font-size: 30px; color:#05C2DD'>Top 10 Brand Wise ", unsafe_allow_html=True)                     
+                
+                user_selected_year = user_selected_year.groupby('Brands').sum().reset_index().sort_values(by="Transaction_count", ascending=False)
+                user_selected_year['Serial'] = range(1, len(user_selected_year) + 1)
+                user_selected_year = user_selected_year.head(10)
+                user_selected_year['Transaction_count']= user_selected_year['Transaction_count'].apply(format_number)
+                df=pd.DataFrame(user_selected_year[['Serial', 'Brands', 'Transaction_count']])
+                df.set_index('Serial', inplace=True)
+                df.columns = ['Mobile Brands', 'User Count']
+                st.table(df)
+
+
+#----------------------------------------------------------------OPTION: STATE WISE EXPLORE---------------------------------------------------                
+
+if select == "STATE-WISE-EXPLORE":
+    
+    tab1, tab2, tab3 = st.tabs(["Transaction Data", "Insurance Data","User Data"])
+
+    
+#---------------------------------------------------------------TAB1: TRANSACTION DATA-------------------------------------------------    
+    
+    with tab1:
+      
+            
+        st.markdown("<h1 style='text-align: center; font-size: 30px'> All India Transaction Data", unsafe_allow_html=True)    
+
+        col1, col2, col3,col4,col5,col6 = st.columns((0.7,0.8,1.5,0.9,0.9,0.9),gap="large")
+
+        with col1:
+            years = st.selectbox("#### Select Year:", options=Agg_trans_df["Years"].unique())
+        with col2:
+            quarters = st.selectbox("#### Select Quarter:", options=Agg_trans_df["Quarter"].unique())
+        with col3:
+            states = st.selectbox("#### Select State:", options=Agg_trans_df["States"].unique())            
+        st.markdown(f"<h1 style='font-size: 30px'> {states} Transaction Data", unsafe_allow_html=True)
+
+
+        trans_selected_year = Agg_trans_df[(Agg_trans_df['Years'] == years) & 
+                                        (Agg_trans_df['Quarter'] == quarters) & (Agg_trans_df['States'] == states)] 
+        trans_selected_year_dist = map_trans_df[(map_trans_df['Years'] == years) & 
+                                        (map_trans_df['Quarter'] == quarters) & (map_trans_df['States'] == states)]        
+        trans_selected_year_pin = top_trans_df[(top_trans_df['Years'] == years) & 
+                                        (top_trans_df['Quarter'] == quarters) & (top_trans_df['States'] == states)] 
+        
+        if trans_selected_year.empty:
+            st.error("#### No data available for the selected year and quarter.")
+            
+        else:
+            trans_selected_year_grouped = trans_selected_year.groupby('States').sum().reset_index().sort_values(by="Transaction_amount", ascending=False)
+            trans_selected_year_grouped['Serial'] = range(1, len(trans_selected_year_grouped) + 1)
+            trans_selected_year_grouped = trans_selected_year_grouped.head(10)
+
+            total_transactions = trans_selected_year['Transaction_count'].sum()
+            total_payment_value = trans_selected_year['Transaction_amount'].sum()
+            avg_transaction_value = total_payment_value / total_transactions
+            total_transactions = format_number(total_transactions)
+            col_map, col_data = st.columns((5, 1.65), gap='large')
            
-            col1,col2 = st.columns(2)
-            with col1:
-
-                quarters = st.selectbox("Select the Quarter", options=tac_Y["Quarter"].unique())
-                #quarters= st.slider("Select the Quarter",tac_Y["Quarter"].min(),tac_Y["Quarter"].max(),tac_Y["Quarter"].min())
-            transaction_amount_count_Y_Q(tac_Y,quarters)
-
-        #----------------------------------------------------RADIO BUTTON: TRANSACTION ANALYSIS-------------------------------------------
-        elif method == "Transaction Analysis":
-            
-            col1,col2 = st.columns(2)
-            
-            with col1:
-
-                years= st.slider("Select the Year for Aggregated Transactions",Agg_trans_df["Years"].min(),Agg_trans_df["Years"].max(),Agg_trans_df["Years"].min())
+            with col_map:
                 
-            Agg_trans_tac_Y = transaction_amount_count_Y(Agg_trans_df,years)
-
-            col1,col2 = st.columns(2)
-            
-            with col1:
-
-                states = st.selectbox("Select the State for Aggregated Transactions_Type by yearly",Agg_trans_tac_Y["States"].unique())
-
-            Agg_trans_trans_type(Agg_trans_tac_Y,states)
-
-            col1,col2 = st.columns(2)
-            with col1:
+                trans_selected_year_dist.groupby("Districts")[["Transaction_count","Transaction_amount"]].sum()
+              
+                fig_bar_1 = px.bar(trans_selected_year_dist, y= "Transaction_amount", x= "Districts", 
+                                hover_data=['Years','Transaction_amount','Transaction_count'],
+                                color='Transaction_amount',
+                                color_discrete_sequence=px.colors.sequential.Viridis,width=800, height=800,                          
+                                range_color=(trans_selected_year_dist['Transaction_amount'].min(), trans_selected_year_dist['Transaction_amount'].max()))
+                st.plotly_chart(fig_bar_1,use_container_width=True)              
 
                 
-                quarters= st.slider("Select the Quarter for Aggregated Transactions_Type",Agg_trans_tac_Y["Quarter"].min(),Agg_trans_tac_Y["Quarter"].max(),Agg_trans_tac_Y["Quarter"].min())
-            Agg_trans_tac_Y_Q= transaction_amount_count_Y_Q(Agg_trans_tac_Y,quarters)
+        with col_data:
+            st.markdown("<h1 style=' font-size: 40px; color:#05C2DD'>Transactions</h1>", unsafe_allow_html=True)
+            st.write(f'#### Total Transactions (Q {quarters}) {years})')
+            st.metric(label='', value=total_transactions)
+            st.write(f'#### Total Payment Value (Q {quarters}) {years})')
+            st.metric(label='', value=format_amount(total_payment_value))
+            st.write(f'#### Average Payment Value (Q {quarters}) {years})')
+            st.metric(label='', value=f"₹{avg_transaction_value:,.0f}")
+            st.markdown('***')
             
-            col1,col2 = st.columns(2)
+            trans_selected_year_grp = trans_selected_year.groupby('Transaction_type').sum().reset_index().sort_values(by="Transaction_amount", ascending=False)
+            trans_selected_year_grp['Serial'] = range(1, len(trans_selected_year_grp) + 1)
+
+            df = pd.DataFrame(trans_selected_year_grp[['Serial', 'Transaction_type', 'Transaction_amount']])
+            df['Transaction_amount']=df['Transaction_amount'].apply(format_amount)
             
-            with col1:
+            st.markdown("<h1 style='font-size: 30px; color:#05C2DD'>Categories</h1>", unsafe_allow_html=True)
 
-                states = st.selectbox("Select the State for Aggregated Transactions_Type by quartely",Agg_trans_tac_Y_Q["States"].unique())
+            col1, col2 = st.columns(2)
+            
+            for index, row in df.iterrows():
+                with col1:
+                    st.markdown(f"<p style='font-size:18px;text-align: left'>{row['Transaction_type']}</p>", unsafe_allow_html=True)
+                with col2:
+                    st.markdown(f"<p style='font-size:18px;text-align: right;font-weight:bold'>{row['Transaction_amount']}</p>", unsafe_allow_html=True)
 
-            Agg_trans_trans_type(Agg_trans_tac_Y_Q,states)
+            st.markdown("***")
+            districts_button_clicked = False
+            postal_codes_button_clicked = False
+            c11,c13 = st.columns(2)
+            with c11:
+                if st.button("# Districts"):
+                    districts_button_clicked = True
+
+            with c13:
+                if st.button("# Postal Codes"):
+                    postal_codes_button_clicked = True                
         
-        
-        #-------------------------------------------------------------RADIO BUTTON: USER ANALYSIS------------------------------------------
-        elif method == "User Analysis":
-            
-            col1,col2 = st.columns(2)
-            
-            with col1:
+            if districts_button_clicked:
+                st.markdown("<h1 style='font-size: 30px; color:#05C2DD'> Top 10 Districts", unsafe_allow_html=True)
+                trans_selected_year_grouped_dist = trans_selected_year_dist.groupby('Districts').sum().reset_index().sort_values(by="Transaction_amount", ascending=False)
+                trans_selected_year_grouped_dist['Serial'] = range(1, len(trans_selected_year_grouped_dist) + 1)
+                trans_selected_year_grouped_dist = trans_selected_year_grouped_dist.head(10)  
+                trans_selected_year_grouped_dist['Transaction_amount'] = trans_selected_year_grouped_dist['Transaction_amount'].apply(format_amount)               
+                df=pd.DataFrame(trans_selected_year_grouped_dist[['Serial', 'Districts', 'Transaction_amount']])
+                df.set_index('Serial', inplace=True)
+                df.columns = ['Districts', 'Transaction_amount']
+                st.table(df)  
 
-                years= st.slider("Select the Year of Aggregated User",Agg_user_df["Years"].min(),Agg_user_df["Years"].max(),Agg_user_df["Years"].min())
-                
-            Agg_user_Y = Agg_user_plot_1(Agg_user_df,years)
-
-            col1,col2 = st.columns(2)
-            with col1:
-
-                quarters= st.slider("Select the Quarter of Aggregated User",Agg_user_Y["Quarter"].min(),Agg_user_Y["Quarter"].max(),Agg_user_Y["Quarter"].min())
-            Agg_user_Y_Q= Agg_user_plot_2(Agg_user_Y,quarters)
-
-            col1,col2 = st.columns(2)
-            
-            with col1:
-
-                states = st.selectbox("Select the State of Aggregated User",Agg_user_Y_Q["States"].unique())
-
-            Agg_user_plot_3(Agg_user_Y_Q,states)
+            if postal_codes_button_clicked:
+                st.markdown("<h1 style='font-size: 30px; color:#05C2DD'>Top 10 Postal Codes", unsafe_allow_html=True)
+                trans_selected_year_grouped_pin = trans_selected_year_pin.groupby('Pincode').sum().reset_index().sort_values(by="Transaction_amount", ascending=False)
+                trans_selected_year_grouped_pin['Serial'] = range(1, len(trans_selected_year_grouped_pin) + 1)
+                trans_selected_year_grouped_pin['Pincode'] = trans_selected_year_grouped_pin['Pincode']
+                trans_selected_year_grouped_pin['Transaction_amount'] = trans_selected_year_grouped_pin['Transaction_amount'].apply(format_amount)
+                df=pd.DataFrame(trans_selected_year_grouped_pin[['Serial', 'Pincode', 'Transaction_amount']])
+                df.set_index('Serial', inplace=True)
+                df.columns = ['Postal Codes', 'Transaction_amount']
+                st.table(df)
 
 
-#-----------------------------------------------------------------TAB: MAP ANALYSIS------------------------------------------------------------------   
+#-------------------------------------------------------------------TAB2: INSURANCE DATA--------------------------------------------------------                    
+
+
     with tab2:
 
-        method_2 = st.radio("Select the Method",["Map Insurance", "Map Transactions", "Map User"])
-
-        #----------------------------------------------------RADIO BUTTON: MAP INSURANCE-------------------------------------------------
-        if method_2 == "Map Insurance":
+        st.markdown("<h1 style='text-align: center; font-size: 30px'> All India Insurance Data", unsafe_allow_html=True)  
+        
+        col1, col2, co3,col4,col5,col6 = st.columns((0.7,0.8,1,1,1,1),gap="large")
+        with col1:
+            years = st.selectbox("#### Select Year: ", options=Agg_ins_df["Years"].unique())
+        with col2:
+            quarters = st.selectbox("#### Select Quarter: ", options=Agg_ins_df["Quarter"].unique())
+        with co3:
+            states = st.selectbox("#### Select State: ", options=Agg_ins_df["States"].unique())
+        st.markdown(f"<h1 style='font-size: 30px'> {states} Insurance Data", unsafe_allow_html=True)
             
-            col1,col2 = st.columns(2)
-            
-            with col1:
 
-                years= st.slider("Select the Year for Map Insurance",map_ins_df["Years"].min(),map_ins_df["Years"].max(),map_ins_df["Years"].min())
+        ins_selected_year = Agg_ins_df[(Agg_ins_df['Years'] == years) & 
+                                        (Agg_ins_df['Quarter'] == quarters) & (Agg_ins_df['States'] == states)] 
+        ins_selected_year_dist = map_ins_df[(map_ins_df['Years'] == years) & 
+                                        (map_ins_df['Quarter'] == quarters) & (map_ins_df['States'] == states)]        
+        ins_selected_year_pin = top_ins_df[(top_ins_df['Years'] == years) & 
+                                        (top_ins_df['Quarter'] == quarters) & (top_ins_df['States'] == states)]
+        
+
+        if ins_selected_year.empty:
+            st.error("No data available for the selected year and quarter.")
+            
+        else:
+            ins_selected_year_grouped = ins_selected_year.groupby('States').sum().reset_index().sort_values(by="Transaction_amount", ascending=False)
+            ins_selected_year_grouped['Serial'] = range(1, len(ins_selected_year_grouped) + 1)
+            ins_selected_year_grouped = ins_selected_year_grouped.head(10)
+
+            total_transactions = ins_selected_year['Transaction_count'].sum()
+            total_payment_value = ins_selected_year['Transaction_amount'].sum()
+            avg_transaction_value = total_payment_value / total_transactions
+            total_transactions = format_number(total_transactions)
+            
+            col_map, col_data = st.columns((5, 1.65), gap='large')
+             
+            with col_map:
+ 
+                # ins_selected_year_dist.loc[:, 'Transaction_amount'] = ins_selected_year_dist['Transaction_amount'].apply(format_amount)
+                # ins_selected_year_dist_map=ins_selected_year_dist
+                ins_selected_year_dist=ins_selected_year_dist.rename(columns={'Transaction_amount': 'Premium Amount', 'Transaction_count': 'Policy Count'})
                 
-            map_ins_tac_Y = transaction_amount_count_Y(map_ins_df,years)
 
-            col1,col2 = st.columns(2)
-            
-            with col1:
+                ins_selected_year_dist.groupby("Districts")[["Premium Amount","Policy Count"]].sum()
+              
+                fig_bar_1 = px.bar(ins_selected_year_dist, y= "Premium Amount", x= "Districts", 
+                                hover_data=['Years','Premium Amount','Policy Count'],
+                                color='Premium Amount',
+                                color_discrete_sequence=px.colors.sequential.Viridis,width=800, height=800)                          
+                               
+                st.plotly_chart(fig_bar_1,use_container_width=True)              
 
-                states = st.selectbox("Select the State for Map Insurance",map_ins_tac_Y["States"].unique())
 
-            map_ins_dist(map_ins_tac_Y,states)
-
-            col1,col2 = st.columns(2)
-            with col1:
-
+            with col_data:
+                st.markdown("<h1 style=' font-size: 40px; color:#05C2DD'>Insurance</h1>", unsafe_allow_html=True)
+                st.write(f"#### Insurance Policies No's (Q{quarters}) {years})")
+                st.metric(label='', value=total_transactions)
+                st.write(f'#### Total Premium Value (Q{quarters}) {years})')
+                st.metric(label='', value=format_amount(total_payment_value))
+                st.write(f'#### Average Premium Value (Q{quarters}) {years})')
+                st.metric(label='', value=f"₹{avg_transaction_value:,.0f}")                
                 
-                quarters= st.slider("Select the Quarter for Map Insurance",map_ins_tac_Y["Quarter"].min(),map_ins_tac_Y["Quarter"].max(),map_ins_tac_Y["Quarter"].min())
-            map_ins_tac_Y_Q= transaction_amount_count_Y_Q(map_ins_tac_Y,quarters)
+                st.markdown('***')   
+                districts_button_clicked = False
+                postal_codes_button_clicked = False
+                c11, c13 = st.columns(2)
+                with c11:
+                    if st.button("# Districts "):
+                        districts_button_clicked = True
 
-            col1,col2 = st.columns(2)
-            
-            with col1:
+                with c13:
+                    if st.button("# Postal Codes "):
+                        postal_codes_button_clicked = True 
+                           
+                if districts_button_clicked:
+                    st.markdown("<h1 style='font-size: 30px; color:#05C2DD'>Top 10 Districts</h1>", unsafe_allow_html=True)
+                    ins_selected_year_grouped_dist = ins_selected_year_dist.groupby('Districts').sum().reset_index().sort_values(by="Premium Amount", ascending=False)
+                    ins_selected_year_grouped_dist['Serial'] = range(1, len(ins_selected_year_grouped_dist) + 1)
+                    ins_selected_year_grouped_dist = ins_selected_year_grouped_dist.head(10)
+                    ins_selected_year_grouped_dist['Premium Amount'] = ins_selected_year_grouped_dist['Premium Amount'].apply(format_amount) 
+                    df=pd.DataFrame(ins_selected_year_grouped_dist[['Serial', 'Districts', 'Premium Amount']])
+                    df.set_index('Serial', inplace=True)
+                    df.columns = ['User District', 'Premium Amount']
+                    st.table(df)                     
+       
+                if postal_codes_button_clicked:
+                    st.markdown("<h1 style='font-size: 30px; color:#05C2DD'>Top 10 Postal Codes</h1>", unsafe_allow_html=True)
+                    ins_selected_year_grouped_pin = ins_selected_year_pin.groupby('Pincode').sum().reset_index().sort_values(by="Transaction_amount", ascending=False)
+                    ins_selected_year_grouped_pin['Serial'] = range(1, len(ins_selected_year_grouped_pin) + 1)
+                    ins_selected_year_grouped_pin['Pincode'] = ins_selected_year_grouped_pin['Pincode']
+                    ins_selected_year_grouped_pin['Transaction_amount'] = ins_selected_year_grouped_pin['Transaction_amount'].apply(format_amount)                    
+                    df=pd.DataFrame(ins_selected_year_grouped_pin[['Serial', 'Pincode', 'Transaction_amount']])
+                    df.set_index('Serial', inplace=True)
+                    df.columns = ['User Postal Codes', 'Premium Amount']
+                    st.table(df)
 
-                states = st.selectbox("Select the State for Map Insurance by Quartely",map_ins_tac_Y_Q["States"].unique())
 
-            map_ins_dist(map_ins_tac_Y_Q,states)
+#--------------------------------------------------------------------TAB3: USER DATA---------------------------------------------------------                    
 
-        #-------------------------------------------------RADIO BUTTON: MAP TRANSACTIONS---------------------------------------
-        elif method_2 == "Map Transactions":
-            
-            col1,col2 = st.columns(2)
-            
-            with col1:
 
-                years= st.slider("Select the Year for Map Transactions",map_trans_df["Years"].min(),map_trans_df["Years"].max(),map_trans_df["Years"].min())
-                
-            map_trans_tac_Y = transaction_amount_count_Y(map_trans_df,years)
-
-            col1,col2 = st.columns(2)
-            
-            with col1:
-
-                states = st.selectbox("Select the State for Map Transactions",map_trans_tac_Y["States"].unique())
-
-            map_ins_dist(map_trans_tac_Y,states)
-
-            col1,col2 = st.columns(2)
-            with col1:
-
-                
-                quarters= st.slider("Select the Quarter for Map Transactions",map_trans_tac_Y["Quarter"].min(),map_trans_tac_Y["Quarter"].max(),map_trans_tac_Y["Quarter"].min())
-            map_trans_tac_Y_Q= transaction_amount_count_Y_Q(map_trans_tac_Y,quarters)
-
-            col1,col2 = st.columns(2)
-            
-            with col1:
-
-                states = st.selectbox("Select the State for Map Transactions by Quartely",map_trans_tac_Y_Q["States"].unique())
-
-            map_ins_dist(map_trans_tac_Y_Q,states)
-
-        #--------------------------------------------------RADIO BUTTON: MAP USERS--------------------------------------------------
-        elif method_2 == "Map User":
-            
-            col1,col2 = st.columns(2)
-            
-            with col1:
-
-                years= st.slider("Select the Year for Map User",map_user_df["Years"].min(),map_user_df["Years"].max(),map_user_df["Years"].min())
-                
-            map_user_Y = map_user_plot_1(map_user_df,years)
-
-            col1,col2 = st.columns(2)
-            with col1:
-
-                
-                quarters= st.slider("Select the Quarter for Map User",map_user_Y["Quarter"].min(),map_user_Y["Quarter"].max(),map_user_Y["Quarter"].min())
-            map_user_Y_Q= map_user_plot_2(map_user_Y,quarters)
-
-            col1,col2 = st.columns(2)
-            
-            with col1:
-
-                states = st.selectbox("Select the State for Map User_Quartely",map_user_Y_Q["States"].unique())
-
-            map_user_plot_3(map_user_Y_Q,states)
-
-#--------------------------------------------------------------------TAB: TOP ANALYSIS----------------------------------------------------------------    
     with tab3:
 
-        method_3 = st.radio("Select the Method",["Top Insurance", "Top Transactions", "Top User"])
+        st.markdown("<h1 style='text-align: center; font-size: 30px'> All India User Data", unsafe_allow_html=True) 
+        col1, col2, co3,col4,col5,col6 = st.columns((0.7,0.8,1,1,1,1),gap="large")
+        with col1:
+            years = st.selectbox("#### Select Year", options=map_user_df["Years"].unique())
+        with col2:
+            quarters = st.selectbox("#### Select Quarter", options=map_user_df["Quarter"].unique())
+        with co3:
+            states = st.selectbox("#### Select State", options=map_user_df["States"].unique())    
 
-        #-----------------------------------------------RADIO BUTTON: TOP INSURANCE---------------------------------------------
-        if method_3 == "Top Insurance":
-            col1,col2 = st.columns(2)
-            
-            with col1:
-
-                years= st.slider("Select the Year for Top Insurance",top_ins_df["Years"].min(),top_ins_df["Years"].max(),top_ins_df["Years"].min())
+        user_selected_year = Agg_user_df[(Agg_user_df['Years'] == years) & 
+                                        (Agg_user_df['Quarter'] == quarters) & (Agg_user_df['States'] == states) ]
+        user_selected_year_dist = map_user_df[(map_user_df['Years'] == years) & 
+                                        (map_user_df['Quarter'] == quarters) & (map_user_df['States'] == states) ]     
+        user_selected_year_pin = top_user_df[(top_user_df['Years'] == years) &
+                                        (top_user_df['Quarter'] == quarters) & (top_user_df['States'] == states) ]
+        st.markdown(f"<h1 style='font-size: 30px'> {states} Registered Users Data", unsafe_allow_html=True)
+        if user_selected_year.empty:
+            st.error("#### No data available for the selected year and quarter.")
                 
-            top_ins_tac_Y = transaction_amount_count_Y(top_ins_df,years)
+        else:
+            user_selected_year_grouped = user_selected_year_dist.groupby('States').sum().reset_index().sort_values(by="RegisteredUsers", ascending=False)
+            user_selected_year_group = user_selected_year.groupby('States').sum().reset_index().sort_values(by="Transaction_count", ascending=False)
+            user_selected_year_grouped['Serial'] = range(1, len(user_selected_year_grouped) + 1)
 
-            col1,col2 = st.columns(2)
-            
-            with col1:
-
-                states = st.selectbox("Select the State for Top Insurance",top_ins_tac_Y["States"].unique())
-
-            top_ins_plot_1(top_ins_tac_Y,states)
-
-            col1,col2 = st.columns(2)
-            with col1:
-
+            total_user = user_selected_year_group['Transaction_count'].sum()
+            total_app_opens = user_selected_year_grouped['AppOpens'].sum()
+            total_app_opens = format_number(total_app_opens)
+            total_user = format_number(total_user)
                 
-                quarters= st.slider("Select the Quarter for Top Insurance",top_ins_tac_Y["Quarter"].min(),top_ins_tac_Y["Quarter"].max(),top_ins_tac_Y["Quarter"].min())
-            top_ins_Y_Q= transaction_amount_count_Y_Q(top_ins_tac_Y,quarters)
-
-        #-----------------------------------------------RADIO BUTTON: TOP TRANSACTIONS------------------------------------------
-        elif method_3 == "Top Transactions":    
-            col1,col2 = st.columns(2)
+            col_map, col_data = st.columns((5, 1.65), gap='large')
             
-            with col1:
+            with col_map:
+                user_selected_year_dist_map = user_selected_year_dist
+                user_selected_year_dist["RegisteredUsers"] = user_selected_year_dist["RegisteredUsers"].apply(format_number)
+                user_selected_year_dist["AppOpens"] = user_selected_year_dist["AppOpens"].apply(format_number)
+                user_selected_year_dist= user_selected_year_dist.rename(columns={'RegisteredUsers': 'Total User', 'AppOpens': 'App Open Count'})
 
-                years= st.slider("Select the Year for Top Trasactions",top_trans_df["Years"].min(),top_trans_df["Years"].max(),top_trans_df["Years"].min())
+                user_selected_year_dist.groupby("Districts")[["Total User","App Open Count"]].sum()
+              
+                fig_bar_1 = px.bar(user_selected_year_dist, y= "Total User", x= "Districts", 
+                                hover_data=['Years','Total User','App Open Count'],
+                                color='Total User',
+                                color_discrete_sequence=px.colors.sequential.Viridis,width=800, height=800)                          
+                               
+                st.plotly_chart(fig_bar_1,use_container_width=True)      
+
+            with col_data:
+                st.markdown("<h1 style=' font-size: 40px; color:#05C2DD'>Users</h1>", unsafe_allow_html=True)
+                st.markdown(f'#### Total Registered Users (Q{quarters}) {years}')
+                st.metric(label="",value=total_user)
+                st.markdown(f'#### App Opens in (Q{quarters}) {years}')
+                st.metric(label="",value=total_app_opens)                
                 
-            top_trans_tac_Y = transaction_amount_count_Y(top_trans_df,years)
+                st.markdown('***')   
+                districts_button_clicked = False
+                postal_codes_button_clicked = False
+                c11, c13 = st.columns(2)
+                with c11:
+                    if st.button("# Districts  "):
+                        districts_button_clicked = True
 
-            col1,col2 = st.columns(2)
-            
-            with col1:
+                with c13:
+                    if st.button("# Postal Codes  "):
+                        postal_codes_button_clicked = True 
 
-                states = st.selectbox("Select the State for Top Transactions",top_trans_tac_Y["States"].unique())
-
-            top_ins_plot_1(top_trans_tac_Y,states)
-
-            col1,col2 = st.columns(2)
-            with col1:
-
+                if districts_button_clicked:
+                    st.markdown("<h1 style='font-size: 30px; color:#05C2DD'> Top 10 Districts", unsafe_allow_html=True)
+                    user_selected_year_grouped_dist = user_selected_year_dist.groupby('Districts').sum().reset_index().sort_values(by="Total User", ascending=False)
+                    user_selected_year_grouped_dist['Serial'] = range(1, len(user_selected_year_grouped_dist) + 1)
+                    user_selected_year_grouped_dist = user_selected_year_grouped_dist.head(10)
+                    df=pd.DataFrame(user_selected_year_grouped_dist[['Serial', 'Districts', 'Total User']])
+                    df.set_index('Serial', inplace=True)
+                    df.columns = ['Districts', 'Registered User']
+                    st.table(df)
+                if postal_codes_button_clicked:
+                    st.markdown("<h1 style='font-size: 30px; color:#05C2DD'>Top 10 Postal Codes", unsafe_allow_html=True)
+                    user_selected_year_grouped_pin = user_selected_year_pin.groupby('Pincode').sum().reset_index().sort_values(by="RegisteredUsers", ascending=False)
+                    user_selected_year_grouped_pin['Serial'] = range(1, len(user_selected_year_grouped_pin) + 1)
+                    user_selected_year_grouped_pin['Pincode'] = user_selected_year_grouped_pin['Pincode']
+                    user_selected_year_grouped_pin['RegisteredUsers'] = user_selected_year_grouped_pin['RegisteredUsers'].apply(format_number)                    
+                    df=pd.DataFrame(user_selected_year_grouped_pin[['Serial', 'Pincode', 'RegisteredUsers']])
+                    df.set_index('Serial', inplace=True)
+                    df.columns = ['Postal Codes', 'Registered User']
+                    st.table(df)      
+                        
+                st.markdown("<h1 style='font-size: 30px; color:#05C2DD'>Top 10 Brand Wise ", unsafe_allow_html=True)                     
                 
-                quarters= st.slider("Select the Quarter for Top Transactions",top_trans_tac_Y["Quarter"].min(),top_trans_tac_Y["Quarter"].max(),top_trans_tac_Y["Quarter"].min())
-            top_trans_Y_Q= transaction_amount_count_Y_Q(top_trans_tac_Y,quarters)
+                user_selected_year = user_selected_year.groupby('Brands').sum().reset_index().sort_values(by="Transaction_count", ascending=False)
+                user_selected_year['Serial'] = range(1, len(user_selected_year) + 1)
+                user_selected_year = user_selected_year.head(10)
+                user_selected_year['Transaction_count']= user_selected_year['Transaction_count'].apply(format_number)
+                df=pd.DataFrame(user_selected_year[['Serial', 'Brands', 'Transaction_count']])
+                df.set_index('Serial', inplace=True)
+                df.columns = ['Mobile Brands', 'User Count']
+                st.table(df)
 
-        #-----------------------------------------------RADIO BUTTON: TOP USERS--------------------------------------------------
-        elif method_3 == "Top User":
-            col1,col2 = st.columns(2)
+
+
+#-----------------------------------------------------------------OPTION: DATA INSIGHTS-----------------------------------------------------------------                
+
+if select == "DATA INSIGHTS":
+
+
+    selected = st.radio("INSIGHTS",("All India Insights", "State-wise-Insights"))
+    
+    if selected == "All India Insights":
+       
+        insight_options = [
+            '1. Yearly Growth of Transaction Amount in India',
+            '2. Yearly Growth of Transaction Count in India',
+            '3. Yearly Growth of Insurance Premium amount in India',
+            '4. Yearly Growth of Insurance Premium Count in India',
+            '5. Yearly Growth of Registered User in India',
+            '6. Yearly Growth of App Open in India',
+            '7. Transaction Amount by State',
+            '8. Transaction Count by State',
+            '9. Transaction Count by Brand',
+            '10. Insurance Premium Amount by State',
+            '11. Insurance Premium Count by State',
+            '12. Registered User by State',
+            '13. App Opens by State',
+            '14. State Wise - Brand & Count',
+            '15. Transaction Types Analysis by Years and Quarters',
+            '16. Average Transaction Amount by Quarter',
+            '17. Percentage of Transactions by Type']
+
+        selected_insight = st.selectbox('Select an Insight', insight_options)
+#------------------------------------------------------------------RADIO BUTTON: ALL INDIA INSIGHTS-------------------------------------------------         
+
+#------------------------------------------------------ALL INDIA INSIGHTS: INSIGHT-1----------------------------------------------------------------- 
+        if selected_insight == '1. Yearly Growth of Transaction Amount in India':
+            st.markdown('#### Yearly Growth of Transaction Amount in India')
+            query1 = '''SELECT Years, 
+                                SUM(Transaction_amount) AS Transaction_amount 
+                        FROM aggregated_transaction 
+                        GROUP BY Years
+                        ORDER BY Years  '''
+            cursor.execute(query1)
+            mydb.commit()
+            table1 = cursor.fetchall()
+            aggregated_data_yearly = pd.DataFrame(table1, columns=["Years","Transaction_amount"])
+            aggregated_data_yearly['Transaction_amount']=aggregated_data_yearly['Transaction_amount'].apply(format_amount)
+            fig = px.line(aggregated_data_yearly, x='Years', y='Transaction_amount', 
+                    labels={'Years': 'Years', 'Transaction_amount': 'Transaction Amount'}, 
+                    title='Yearly Growth of Transaction Amount in India',markers=True)
+           
+            st.plotly_chart(fig, use_container_width=True) 
             
-            with col1:
+                            
+            on1 = st.toggle("Advanced Insights", key="states_toggle1")
 
-                years= st.slider("Select the Year for Top Users",top_user_df["Years"].min(),top_user_df["Years"].max(),top_user_df["Years"].min())
+            if on1:
+                st.markdown("#### Quarterly Distribution of Transaction Amounts by Year in India")
+                map1 , table1 = st.columns((5,2),gap= 'large')
+                query2 = '''SELECT  Years, Quarter, 
+                                    SUM(Transaction_amount) AS Transaction_amount , 
+                                    SUM(Transaction_count) AS Transaction_count 
+                            FROM aggregated_transaction GROUP BY Years,Quarter'''
+                cursor.execute(query2)
+                mydb.commit()
+                table2 = cursor.fetchall()
+                aggregated_data1 = pd.DataFrame(table2, columns=["Years","Quarter","Transaction_amount","Transaction_count"])                   
+                aggregated_data1['Transaction_amount']=aggregated_data1['Transaction_amount'].apply(format_amount)
+                aggregated_data1['Transaction_count']=aggregated_data1['Transaction_count'].apply(format_number)
+                aggregated_data1['Years'] = aggregated_data1['Years'].astype(str)
+                with map1:   
+                    fig = px.box(aggregated_data1, x='Years', y='Transaction_amount', color='Quarter',
+                                title='Box Plot of Quarterly Transaction Amount by Year in India',
+                                points='all',  
+                                hover_data=['Transaction_count'])
+
+                    st.plotly_chart(fig, use_container_width=True)
+                with table1:  
+                    df_aggregated_data1=aggregated_data1
+                    df_aggregated_data1.drop(columns=["Transaction_count"], inplace=True)
+                    df_aggregated_data1.rename(columns={"Transaction_amount": "Transaction Amount"}, inplace=True)                    
+                    st.markdown('#### Quarterly Transaction Distribution')
+                    st.dataframe(df_aggregated_data1, use_container_width=True, hide_index=True)   
+
+                query3 = '''SELECT  Years, Quarter, 
+                        SUM(Transaction_amount) AS Transaction_amount 
+                        FROM aggregated_transaction 
+                        WHERE Years != 2024
+                        GROUP BY Years,Quarter'''
+                cursor.execute(query3)
+                mydb.commit()
+                table3 = cursor.fetchall()
+                aggregated_data_state = pd.DataFrame(table3, columns=["Years","Quarter","Transaction_amount"]) 
+                st.markdown('#### Quarterly Transaction Amount Distribution by Transaction Amount for Each Year')
+                years = aggregated_data_state['Years'].unique()
+                num_columns = 3
+                columns = st.columns(num_columns)
+                for i, year in enumerate(years):
+                    df_year_quarter = aggregated_data_state[aggregated_data_state['Years'] == year]
+                    if not df_year_quarter.empty:
+                        fig = go.Figure(data=[go.Pie(labels=df_year_quarter['Quarter'], values=df_year_quarter['Transaction_amount'], hole=.3)])
+                        fig.update_layout(
+                            title=f'Transaction Amount Distribution for {year} - All Quarters',
+                            height=550,
+                        )
+                        with columns[i % num_columns]:
+                            st.markdown(f"### Year: {year}")
+                            st.plotly_chart(fig, use_container_width=True)
+                                
+                st.markdown('### Aggregated Transaction Amount for All Four Quarters Combined Across All Years')            
+                co1,co2,co3 = st.columns(3)
+                with co2:
+                    aggregated_total = aggregated_data_state.groupby(['Quarter'])['Transaction_amount'].sum().reset_index()
+                    fig_total = go.Figure(data=[go.Pie(labels=aggregated_total['Quarter'], values=aggregated_total['Transaction_amount'], hole=.3)])
+                    fig_total.update_layout(
+                        title='Aggregated Transaction Amount for All Quarters Combined',
+                        height=550,
+                    )
+                    st.plotly_chart(fig_total, use_container_width=True)    
+            
+#------------------------------------------------------ALL INDIA INSIGHTS: INSIGHT-2-----------------------------------------------------------------           
+
+        if selected_insight == "2. Yearly Growth of Transaction Count in India":
+            st.markdown('#### Yearly Growth of Transaction Count in India')
+            query4 = '''SELECT  Years, 
+                    SUM(Transaction_count) AS Transaction_count
+                    FROM aggregated_transaction 
+                    WHERE Years != 2024
+                    GROUP BY Years
+                    ORDER BY Years'''
+            cursor.execute(query4)
+            mydb.commit()
+            table4 = cursor.fetchall()
+            aggregated_data_yearly_count = pd.DataFrame(table4, columns=["Years","Transaction_count"]) 
+            aggregated_data_yearly_count['Transaction_count']=aggregated_data_yearly_count['Transaction_count'].apply(format_number)
+            fig = px.line(aggregated_data_yearly_count, x='Years', y='Transaction_count', 
+                            labels={'Years': 'Years', 'Transaction_count': 'Transaction Count'}, 
+                            title='Yearly Growth of Transaction Count in India', markers=True)
+            
+            st.plotly_chart(fig, use_container_width=True)   
+            
+            on = st.toggle("Advanced Insights")
+
+            if on:
+                map2 , table2 = st.columns((5,2),gap= 'large') 
+                query5 = '''SELECT  Years, Quarter, 
+                    SUM(Transaction_amount) AS Transaction_amount , 
+                    SUM(Transaction_count) AS Transaction_count
+                    FROM aggregated_transaction 
+                    GROUP BY Years,Quarter'''
+                cursor.execute(query5)
+                mydb.commit()
+                table5 = cursor.fetchall()
+                aggregated_data1 = pd.DataFrame(table5, columns=["Years","Quarter","Transaction_amount","Transaction_count"])  
+                aggregated_data1['Transaction_amount']=aggregated_data1['Transaction_amount'].apply(format_amount)
+                aggregated_data1['Transaction_count']=aggregated_data1['Transaction_count'].apply(format_number)
+                aggregated_data1['Years'] = aggregated_data1['Years'].astype(str)
+                with map2:   
+                    st.markdown('#### Box Plot of Quarterly Transaction Count by Year in India')
+                    fig = px.box(aggregated_data1, x='Years', y='Transaction_count', color='Quarter',
+                                title='Box Plot of Quarterly Transaction Count by Year in India',
+                                points='all',  
+                                hover_data=['Transaction_amount'])
+                    st.plotly_chart(fig, use_container_width=True)
+                    
+                with table2: 
+                    df_aggregated_data1=aggregated_data1
+                    df_aggregated_data1.drop(columns=["Transaction_amount"], inplace=True)
+                    df_aggregated_data1.rename(columns={"Transaction_count": "Transaction Count"}, inplace=True)
+                    st.markdown('#### Quarterly Transaction Count Distribution')
+                    st.dataframe(df_aggregated_data1, use_container_width=True, hide_index=True)   
                 
-            top_user_Y = top_user_plot_1(top_user_df,years)
+                query6 = '''SELECT  Years, Quarter, 
+                        SUM(Transaction_count) AS Transaction_count
+                        FROM aggregated_transaction 
+                        WHERE Years != 2024
+                        GROUP BY Years,Quarter'''
+                cursor.execute(query6)
+                mydb.commit()
+                table6 = cursor.fetchall()
+                aggregated_data_state = pd.DataFrame(table6, columns=["Years","Quarter","Transaction_count"])                     
+                st.markdown('#### Quarterly Transaction Count Distribution by Transaction Count for Each Year')
+                years = aggregated_data_state['Years'].unique()
+                num_columns = 3
+                columns = st.columns(num_columns)
+                for i, year in enumerate(years):
+                    df_year_quarter = aggregated_data_state[aggregated_data_state['Years'] == year]
+                    if not df_year_quarter.empty:
+                        fig = go.Figure(data=[go.Pie(labels=df_year_quarter['Quarter'], values=df_year_quarter['Transaction_count'], hole=.3)])
+                        fig.update_layout(
+                            title=f'Transaction Count Distribution for {year} - All Quarters',
+                            height=550,
+                        )
+                        with columns[i % num_columns]:
+                            st.markdown(f"### Year: {year}")
+                            st.plotly_chart(fig, use_container_width=True)
+                                
+                st.markdown('### Aggregated Transaction Count for All Four Quarters Combined Across All Years')            
+                co1,co2,co3 = st.columns(3)
+                with co2:
+                    aggregated_total = aggregated_data_state.groupby(['Quarter'])['Transaction_count'].sum().reset_index()
+                    fig_total = go.Figure(data=[go.Pie(labels=aggregated_total['Quarter'], values=aggregated_total['Transaction_count'], hole=.3)])
+                    fig_total.update_layout(
+                        title='Aggregated Transaction Count for All Quarters Combined',
+                        height=550,
+                    )
+                    st.plotly_chart(fig_total, use_container_width=True)    
 
-            col1,col2 = st.columns(2)
+#------------------------------------------------------ALL INDIA INSIGHTS: INSIGHT-3----------------------------------------------------------------- 
+
+        if selected_insight == '3. Yearly Growth of Insurance Premium amount in India':
+            st.markdown('#### Yearly Growth of Insurance Premium Amount in India')
+            query7 = '''SELECT  Years, 
+                    SUM(Transaction_amount) AS Transaction_amount
+                    FROM aggregated_insurance 
+                    WHERE Years != 2024
+                    GROUP BY Years
+                    ORDER BY Years'''
+            cursor.execute(query7)
+            mydb.commit()
+            table7= cursor.fetchall()
+            agg_ins_yearly = pd.DataFrame(table7, columns=["Years","Transaction_amount"])            
+            agg_ins_yearly['Transaction_amount']=agg_ins_yearly['Transaction_amount'].apply(format_amount)
+            fig = px.line(agg_ins_yearly, x='Years', y='Transaction_amount', 
+                    labels={'Years': 'Years', 'Transaction_amount': 'Insurance Premium Amount'}, 
+                    title='Yearly Growth of Transaction Amount in India', markers=True)
+            fig.update_xaxes(tickmode='array', tickvals=[2018,2019,2020,2021,2022,2023])
+            st.plotly_chart(fig, use_container_width=True) 
             
-            with col1:
+                            
+            on = st.toggle("Advanced Insights")
 
-                states = st.selectbox("Select the State for Top Users",top_user_Y["States"].unique())
+            if on:
+                st.markdown("#### Quarterly Distribution of Insurance Premium Amount by Year in India")
+                map1 , table1 = st.columns((5,2),gap= 'large')   
+                query8 = '''SELECT  Years, Quarter, 
+                    SUM(Transaction_amount) AS Transaction_amount , 
+                    SUM(Transaction_count) AS Transaction_count
+                    FROM aggregated_insurance 
+                    GROUP BY Years,Quarter'''
+                cursor.execute(query8)
+                mydb.commit()
+                table8 = cursor.fetchall()
+                agg_ins_data1 = pd.DataFrame(table8, columns=["Years","Quarter","Transaction_amount","Transaction_count"]) 
+                agg_ins_data1['Transaction_amount']=agg_ins_data1['Transaction_amount'].apply(format_amount)
+                agg_ins_data1['Transaction_count']=agg_ins_data1['Transaction_count'].apply(format_number)
+                agg_ins_data1['Years'] = agg_ins_data1['Years'].astype(str)
+                with map1:   
+                    fig = px.box(agg_ins_data1, x='Years', y='Transaction_amount', color='Quarter',
+                                title='Box Plot of Quarterly Insurance Premium Amount by Year in India',
+                                points='all', 
+                                hover_data=['Transaction_count'])
 
-            top_user_plot_2(top_user_Y,states)
+                    st.plotly_chart(fig, use_container_width=True)
+                with table1:  
+                    df_agg_ins_data1=agg_ins_data1
+                    df_agg_ins_data1.drop(columns=["Transaction_count"], inplace=True)
+                    df_agg_ins_data1.rename(columns={"Transaction_amount": "Transaction Amount"}, inplace=True)
+                    st.markdown('#### Quarterly Insurance Premium Amount Distribution')
+                    st.dataframe(df_agg_ins_data1, use_container_width=True, hide_index=True)
+                    
+                query9 = '''SELECT  Years, Quarter, 
+                        SUM(Transaction_amount) AS Transaction_amount
+                        FROM aggregated_insurance
+                        WHERE Years != 2024
+                        GROUP BY Years,Quarter'''
+                cursor.execute(query9)
+                mydb.commit()
+                table9 = cursor.fetchall()
+                agg_ins_state = pd.DataFrame(table9, columns=["Years","Quarter","Transaction_amount"])   
+                st.markdown('#### Quarterly Transaction Amount Distribution by Insurance Premium Amount for Each Year')
+                years = agg_ins_state['Years'].unique()
+                num_columns = 3
+                columns = st.columns(num_columns)
+                for i, year in enumerate(years):
+                    df_year_quarter = agg_ins_state[agg_ins_state['Years'] == year]
+                    if not df_year_quarter.empty:
+                        fig = go.Figure(data=[go.Pie(labels=df_year_quarter['Quarter'], values=df_year_quarter['Transaction_amount'], hole=.3)])
+                        fig.update_layout(
+                            title=f'Premium Amount Distribution for {year} - All Quarters',
+                            height=550,
+                        )
+                        with columns[i % num_columns]:
+                            st.markdown(f"### Year: {year}")
+                            st.plotly_chart(fig, use_container_width=True)
+                                
+                st.markdown('### Insurance Premium Amount for All Four Quarters Combined Across All Years')            
+                co1,co2,co3 = st.columns(3)
+                with co2:
+                    agg_ins_total = agg_ins_state.groupby(['Quarter'])['Transaction_amount'].sum().reset_index()
+                    
+                    fig_total = go.Figure(data=[go.Pie(labels=agg_ins_total['Quarter'], values=agg_ins_total['Transaction_amount'], hole=.3)])
+                    fig_total.update_layout(
+                        title='Insurance Premium Amount for All Quarters Combined',
+                        height=550,
+                    )
+                    st.plotly_chart(fig_total, use_container_width=True)    
+
+#------------------------------------------------------ALL INDIA INSIGHTS: INSIGHT-4----------------------------------------------------------------- 
+
+        if selected_insight == "4. Yearly Growth of Insurance Premium Count in India":
+            st.markdown('#### Yearly Growth of Insurance Premium Count in India')
+            query10 = '''SELECT  Years, 
+                    SUM(Transaction_count) AS Transaction_count
+                    FROM aggregated_insurance 
+                    WHERE Years != 2024
+                    GROUP BY Years
+                    ORDER BY Years'''
+            cursor.execute(query10)
+            mydb.commit()
+            table10= cursor.fetchall()
+            agg_ins_data_yearly_count = pd.DataFrame(table10, columns=["Years","Transaction_count"])             
+            agg_ins_data_yearly_count['Transaction_count']=agg_ins_data_yearly_count['Transaction_count'].apply(format_number)
+            fig = px.line(agg_ins_data_yearly_count, x='Years', y='Transaction_count', 
+                            labels={'Years': 'Years', 'Transaction_count': 'Insurance Premium Count'}, 
+                            title='Yearly Growth of Insurance Premium Count in India',markers=True)
+            fig.update_xaxes(tickmode='array', tickvals=[2018,2019,2020,2021,2022,2023])
+            st.plotly_chart(fig, use_container_width=True)   
+            
+            on = st.toggle("Advanced Insights")
+
+            if on:
+                map2 , table2 = st.columns((5,2),gap= 'large')   
+                query11 = '''SELECT  Years, Quarter, 
+                    SUM(Transaction_amount) AS Transaction_amount , 
+                    SUM(Transaction_count) AS Transaction_count
+                    FROM aggregated_insurance 
+                    GROUP BY Years,Quarter'''
+                cursor.execute(query11)
+                mydb.commit()
+                table11 = cursor.fetchall()
+                aggregated_data1 = pd.DataFrame(table11, columns=["Years","Quarter","Transaction_amount","Transaction_count"])                 
+                aggregated_data1['Transaction_amount']=aggregated_data1['Transaction_amount'].apply(format_amount)
+                aggregated_data1['Transaction_count']=aggregated_data1['Transaction_count'].apply(format_number)
+                aggregated_data1['Years'] = aggregated_data1['Years'].astype(str)
+                with map2:   
+                    st.markdown('#### Box Plot of Quarterly Insurance Premium Count by Year in India')
+                    fig = px.box(aggregated_data1, x='Years', y='Transaction_count', color='Quarter',
+                                title='Box Plot of Quarterly Insurance Premium Count by Year in India',
+                                points='all', 
+                                hover_data=['Transaction_amount'])
+                    st.plotly_chart(fig, use_container_width=True)
+                with table2:  
+                    df_aggregated_data1=aggregated_data1
+                    df_aggregated_data1.drop(columns=["Transaction_amount"], inplace=True)
+                    df_aggregated_data1.rename(columns={"Transaction_count": "Transaction Count"}, inplace=True)
+                    st.markdown('#### Quarterly Insurance Premium Count Distribution')
+                    st.dataframe(df_aggregated_data1, use_container_width=True, hide_index=True)
+                    
+                query12 = '''SELECT  Years, Quarter, 
+                        SUM(transaction_count) AS transaction_count
+                        FROM aggregated_insurance
+                        WHERE Years != 2024
+                        GROUP BY Years,Quarter'''
+                cursor.execute(query12)
+                mydb.commit()
+                table12 = cursor.fetchall()
+                aggregated_data_state = pd.DataFrame(table12, columns=["Years","Quarter","Transaction_count"])               
+                st.markdown('#### Quarterly Distribution by Insurance Premium Count for Each Year')
+                years = aggregated_data_state['Years'].unique()
+                num_columns = 3
+                columns = st.columns(num_columns)
+                for i, year in enumerate(years):
+                    df_year_quarter = aggregated_data_state[aggregated_data_state['Years'] == year]
+                    if not df_year_quarter.empty:
+                        fig = go.Figure(data=[go.Pie(labels=df_year_quarter['Quarter'], values=df_year_quarter['Transaction_count'], hole=.3)])
+                        fig.update_layout(
+                            title=f'Premium Count Distribution for {year} - All Quarters',
+                            height=550,
+                        )
+                        with columns[i % num_columns]:
+                            st.markdown(f"### Year: {year}")
+                            st.plotly_chart(fig, use_container_width=True)
+                                
+                st.markdown('### Insurance Premium Count for All Four Quarters Combined Across All Years')            
+                co1,co2,co3 = st.columns(3)
+                with co2:
+                    aggregated_total = aggregated_data_state.groupby(['Quarter'])['Transaction_count'].sum().reset_index()
+
+                    fig_total = go.Figure(data=[go.Pie(labels=aggregated_total['Quarter'], values=aggregated_total['Transaction_count'], hole=.3)])
+                    fig_total.update_layout(
+                        title='Insurance Premium Count for All Quarters Combined',
+                        height=550,
+                    )
+                    st.plotly_chart(fig_total, use_container_width=True)    
+
+#------------------------------------------------------ALL INDIA INSIGHTS: INSIGHT-5----------------------------------------------------------------- 
 
 
-#------------------------------------------------------------------------OPTION: TOP CHARTS----------------------------------------------------
-elif select == "TOP CHARTS":
-        question = st.selectbox("Select the Question",["1.Transaction Amount and Count of Aggregated Insurance",
-                                                       "2.Transaction Amount and Count of Map Insurance",
-                                                       "3.Transaction Amount and Count of Top Insurance",
-                                                       "4.Transaction Amount and Count of Aggregated Transactions",
-                                                       "5.Trasanction Amount and Count of Map Transactions",
-                                                       "6.Transaction Amoutn and Count of Top Transactions",
-                                                       "7.Transaction Count of Aggregated User",
-                                                       "8.Registered User of Map Users",
-                                                       "9.App Opens of Map User",
-                                                       "10.Registered Users of Top User"])
-        #Question_1
+        if selected_insight == "5. Yearly Growth of Registered User in India":
         
-        if question == "1.Transaction Amount and Count of Aggregated Insurance":
+            st.markdown('#### Yearly Growth of Registered User in India')
+            query13 = '''SELECT  Years, 
+                    SUM(RegisteredUsers) AS RegisteredUsers
+                    FROM map_user
+                    WHERE Years != 2024
+                    GROUP BY Years
+                    ORDER BY years'''
+            cursor.execute(query13)
+            mydb.commit()
+            table13= cursor.fetchall()
+            map_user_yearly = pd.DataFrame(table13, columns=["Years","RegisteredUsers"])  
+            map_user_yearly['Registered_Users']=map_user_yearly['RegisteredUsers'].apply(format_number)
+            fig = px.line(map_user_yearly, x='Years', y='RegisteredUsers',
+                            labels={'Years': 'Years', 'RegisteredUsers': 'Registered User'}, title='Yearly Growth of Registered User in India', markers=True)
+            fig.update_xaxes(tickmode='array', tickvals=[2018,2019,2020,2021,2022,2023,2024])
+            st.plotly_chart(fig, use_container_width=True)
             
-            st.subheader("TRANSACTION AMOUNT")
-            top_chart_trans_amt("aggregated_insurance")
-            
-            st.subheader("TRANSACTION COUNT")
-            top_chart_trans_count("aggregated_insurance")
+            on = st.toggle("Advanced Insights")
 
-        #Question_2
-
-        elif question == "2.Transaction Amount and Count of Map Insurance":
-            
-            st.subheader("TRANSACTION AMOUNT")
-            top_chart_trans_amt("map_insurance")
-            
-            st.subheader("TRANSACTION COUNT")
-            top_chart_trans_count("map_insurance")
-
-        #Question_3        
-
-        elif question == "3.Transaction Amount and Count of Top Insurance":
-            
-            st.subheader("TRANSACTION AMOUNT")
-            top_chart_trans_amt("top_insurance")
-            
-            st.subheader("TRANSACTION COUNT")
-            top_chart_trans_count("top_insurance")
-
-        #Question_4
-
-        elif question == "4.Transaction Amount and Count of Aggregated Transactions":
-            
-            st.subheader("TRANSACTION AMOUNT")
-            top_chart_trans_amt("aggregated_transaction")
-            
-            st.subheader("TRANSACTION COUNT")
-            top_chart_trans_count("aggregated_transaction")
-
-        #Question_5
-
-        elif question == "5.Trasanction Amount and Count of Map Transactions":
-            
-            st.subheader("TRANSACTION AMOUNT")
-            top_chart_trans_amt("map_transaction")
-            
-            st.subheader("TRANSACTION COUNT")
-            top_chart_trans_count("map_transaction")
-
-        #Question_6
-
-        elif question == "6.Transaction Amoutn and Count of Top Transactions":
-            
-            st.subheader("TRANSACTION AMOUNT")
-            top_chart_trans_amt("top_transaction")
-            
-            st.subheader("TRANSACTION COUNT")
-            top_chart_trans_count("top_transaction")
-
-        #Question_7
-
-        elif question == "7.Transaction Count of Aggregated User":                       
+            if on:            
+                st.markdown('#### Area chart Quarter-wise Growth of Registered User in India ')
+                query14 = '''SELECT  Years, Quarter, 
+                    SUM(RegisteredUsers) AS RegisteredUsers
+                    FROM map_user
+                    WHERE Years !=2024
+                    GROUP BY Years,Quarter'''
+                cursor.execute(query14)
+                mydb.commit()
+                table14 = cursor.fetchall()
+                map_data1 = pd.DataFrame(table14, columns=["Years","Quarter","RegisteredUsers"])  
+                map2 , table2 = st.columns((5,2),gap= 'large')   
+                with map2:                               
+                    map_data = map_user_df[map_user_df['Years'] != 2024].groupby(['Years', 'Quarter'])['RegisteredUsers'].sum().reset_index()
+                    fig = px.area(
+                        map_data,
+                        x='Quarter',
+                        y='RegisteredUsers',
+                        color='Years',
+                        title="Quarter-wise Growth of Registered User in India",
+                        labels={'Quarter': 'Quarter', 'RegisteredUsers': 'Registered User'},
+                        hover_data={'RegisteredUsers': ':.2f'}
+                    )
+                    fig.update_layout(margin=dict(t=50, b=50, l=50, r=50))
+                    fig.update_xaxes(tickmode='array', tickvals=[1,2,3,4])
+                    st.plotly_chart(fig, use_container_width=True)
+                with table2:
+                    df_map_data=map_data
+                    df_map_data['Years'] = df_map_data['Years'].apply(lambda x: '{:.0f}'.format(x))
+                    df_map_data["RegisteredUsers"]=df_map_data["RegisteredUsers"].apply(format_number)
+                    df_map_data.rename(columns={"RegisteredUsers": "Registered Users"}, inplace=True)
+                    st.markdown('#### Quarterly Registered User in India')
+                    st.dataframe(df_map_data, use_container_width=True, hide_index=True)
                 
-            st.subheader("TRANSACTION COUNT")
-            top_chart_trans_count("aggregated_user")
+                
+                st.markdown('#### Quarterly Distribution by Registered User for Each Year')
+                years = map_data1['Years'].unique()
+                num_columns = 3
+                columns = st.columns(num_columns)
+                for i, year in enumerate(years):
+                    df_year_quarter = map_data1[map_data1['Years'] == year]
+                    if not df_year_quarter.empty:
+                        fig = go.Figure(data=[go.Pie(labels=df_year_quarter['Quarter'], values=df_year_quarter['RegisteredUsers'], hole=.3)])
+                        fig.update_layout(
+                            title=f'Registered User Distribution for {year} - All Quarters',
+                            height=550,
+                        )
+                        with columns[i % num_columns]:
+                            st.markdown(f"### Year: {year}")
+                            st.plotly_chart(fig, use_container_width=True)
+                                
+                st.markdown('### Registered User for All Four Quarters Combined Across All Years')            
+                co1,co2,co3 = st.columns(3)
+                with co2:
+                    map_user_total = map_data1.groupby(['Quarter'])['RegisteredUsers'].sum().reset_index()
+                    fig_total = go.Figure(data=[go.Pie(labels=map_user_total['Quarter'], values=map_user_total['RegisteredUsers'], hole=.3)])
+                    fig_total.update_layout(
+                        title='Registered User for All Quarters Combined',
+                        height=550,
+                    )
+                    st.plotly_chart(fig_total, use_container_width=True)  
+#------------------------------------------------------ALL INDIA INSIGHTS: INSIGHT-6----------------------------------------------------------------- 
 
-        #Question_8
 
-        elif question == "8.Registered User of Map Users":                       
+        if selected_insight == "6. Yearly Growth of App Open in India":
+            st.markdown('#### Yearly Growth of App Opens in India')
+            query15 = '''SELECT  Years, 
+                    SUM(AppOpens) AS AppOpens
+                    FROM map_user
+                    WHERE years != 2024
+                    GROUP BY years
+                    ORDER BY Years'''
+            cursor.execute(query15)
+            mydb.commit()
+            table15= cursor.fetchall()
+            map_user_years_appopens = pd.DataFrame(table15, columns=["Years","AppOpens"])             
+            map_user_years_appopens['AppOpens']=map_user_years_appopens['AppOpens'].apply(format_number)
+            fig = px.line(map_user_years_appopens, x='Years', y='AppOpens', 
+                            labels={'Years': 'Years', 'AppOpens': 'App Opens'},title='Yearly Growth of App Opens in India', markers=True)
+            fig.update_xaxes(tickmode='array', tickvals=[2019,2020,2021,2022,2023])
+            st.plotly_chart(fig, use_container_width=True) 
+            
+            on = st.toggle("Advanced Insights")
+            if on:            
+                st.markdown('#### Area chart Quarter-wise Growth of App Opens in India ')
+                
+                map2 , table2 = st.columns((5,2),gap= 'large')   
+                with map2:          
+                    map_data = map_user_df[~map_user_df['Years'].isin([2024, 2018])].groupby(['Years', 'Quarter'])['AppOpens'].sum().reset_index()
+                    fig = px.area(
+                        map_data,
+                        x='Quarter',
+                        y='AppOpens',
+                        color='Years',
+                        title="Quarter-wise Growth of App Opens in India",
+                        labels={'Quarter': 'Quarter', 'AppOpens': 'App Opens'},
+                        hover_data={'AppOpens': ':.2f'}
+                    )
+                    fig.update_layout(margin=dict(t=50, b=50, l=50, r=50))
+                    fig.update_xaxes(tickmode='array', tickvals=[1,2,3,4])
+                    st.plotly_chart(fig, use_container_width=True)
+                with table2:
+                    df_map_data=map_data
+                    df_map_data['Years'] = df_map_data['Years'].apply(lambda x: '{:.0f}'.format(x))
+                    df_map_data["AppOpens"]=df_map_data["AppOpens"].apply(format_number)
+                    df_map_data.rename(columns={"AppOpens": "App Opens"}, inplace=True)
+                    st.markdown('#### Quarterly App Opens in India')
+                    st.dataframe(df_map_data, use_container_width=True, hide_index=True)
+                
+                query15 = '''SELECT  Years, Quarter, 
+                    SUM(AppOpens) AS AppOpens
+                    FROM map_user
+                    WHERE Years NOT IN (2024, 2018)
+                    GROUP BY Years,quarter'''
+                cursor.execute(query15)
+                mydb.commit()
+                table15 = cursor.fetchall()
+                map_data1 = pd.DataFrame(table15, columns=["Years","Quarter","AppOpens"]) 
+                st.markdown('#### Quarterly Distribution by App Opens for Each Year')
+                years = map_data1['Years'].unique()
+                num_columns = 3
+                columns = st.columns(num_columns)
+                for i, year in enumerate(years):
+                    df_year_quarter = map_data1[map_data1['Years'] == year]
+                    if not df_year_quarter.empty:
+                        fig = go.Figure(data=[go.Pie(labels=df_year_quarter['Quarter'], values=df_year_quarter['AppOpens'], hole=.3)])
+                        fig.update_layout(
+                            title=f'App Opens Distribution for {year} - All Quarters',
+                            height=550,
+                        )
+                        with columns[i % num_columns]:
+                            st.markdown(f"### Year: {year}")
+                            st.plotly_chart(fig, use_container_width=True)
+                                
+                st.markdown('### App Opens for All Four Quarters Combined Across All Years')            
+                co1,co2,co3 = st.columns(3)
+                with co2:
+                    map_user_total = map_data1.groupby(['Quarter'])['AppOpens'].sum().reset_index()
+                    fig_total = go.Figure(data=[go.Pie(labels=map_user_total['Quarter'], values=map_user_total['AppOpens'], hole=.3)])
+                    fig_total.update_layout(
+                        title='App Opens for All Quarters Combined',
+                        height=550,
+                    )
+                    st.plotly_chart(fig_total, use_container_width=True)                            
+#------------------------------------------------------ALL INDIA INSIGHTS: INSIGHT-7----------------------------------------------------------------- 
 
-            states = st.selectbox("Select the State", map_user_df["States"].unique())    
-            st.subheader("REGISTERED USERS")
-            top_chart_registered_user("map_user", states)
+        if selected_insight == "7. Transaction Amount by State":
+            st.markdown('#### Total Transaction Amount by State in India')
+            query16 = '''SELECT States , 
+                                SUM(Transaction_amount) AS Transaction_amount 
+                        FROM aggregated_transaction 
+                        GROUP BY States'''
+            cursor.execute(query16)
+            mydb.commit()
+            table16 = cursor.fetchall()
+            aggregated_data_state = pd.DataFrame(table16, columns=["States","Transaction_amount"]) 
+            fig = px.bar(aggregated_data_state, x='States', y='Transaction_amount', height=700,
+                        title='Transaction Amount by State in India',
+                        labels={'Transaction_amount': 'Transaction Amount', 'States': 'States'},
+                        color='States', color_discrete_sequence=px.colors.qualitative.Pastel1)
+            fig.update_layout(legend_title="State List")
+            st.plotly_chart(fig, use_container_width=True)
+#------------------------------------------------------ALL INDIA INSIGHTS: INSIGHT-8----------------------------------------------------------------- 
 
-        #Question_9
+        if selected_insight == "8. Transaction Count by State":    
+            st.markdown('#### Total Transaction Count by State in India')
+            query17 = '''SELECT States , 
+                                SUM(Transaction_count) AS Transaction_count 
+                        FROM aggregated_transaction 
+                        GROUP BY States'''
+            cursor.execute(query17)
+            mydb.commit()
+            table17 = cursor.fetchall()
+            aggregated_data_state = pd.DataFrame(table17, columns=["States","Transaction_count"])             
+            fig = px.bar(aggregated_data_state, x='States', y='Transaction_count', 
+                        title='Total Transaction Count by State in India',
+                        labels={'Transaction_count': 'Transaction Count', 'States': 'States'},
+                        color='States', color_discrete_sequence=px.colors.qualitative.Pastel1,height=700)
+            fig.update_layout(legend_title="State List")
+            st.plotly_chart(fig, use_container_width=True)     
+#------------------------------------------------------ALL INDIA INSIGHTS: INSIGHT-9----------------------------------------------------------------- 
+        if selected_insight == "9. Transaction Count by Brand":
+            st.markdown('#### Transaction Count by Brand')
+            query21 = '''SELECT Brands, 
+                                SUM(Transaction_count) AS Transaction_count 
+                        FROM aggregated_user 
+                        GROUP BY Brands'''
+            cursor.execute(query21)
+            mydb.commit()
+            table21 = cursor.fetchall()
+            agg_user_data = pd.DataFrame(table21, columns=["Brands","Transaction_count"])              
+            fig = px.bar(agg_user_data, x='Brands', y='Transaction_count',
+                        title='Total Registered User Count by Mobile Brand in India',
+                        labels={'Transaction_count': 'Registered Users'}, 
+                        color='Brands', color_discrete_sequence=px.colors.qualitative.Pastel1,height=700)
 
-        elif question == "9.App Opens of Map User":                       
+            fig.update_layout(barmode='stack', xaxis_title="Brands", yaxis_title="Registered Users")
 
-            states = st.selectbox("Select the State", map_user_df["States"].unique())    
-            st.subheader("APP OPENS")
-            top_chart_appopens("map_user", states)
+            fig.update_traces(hovertemplate='Brands: %{x}<br>Registered Users: %{y}<extra></extra>')
 
-        #Question_10
+            st.plotly_chart(fig, use_container_width=True)
 
-        elif question == "10.Registered Users of Top User":                       
+#------------------------------------------------------ALL INDIA INSIGHTS: INSIGHT-10-----------------------------------------------------------------   
 
-            st.subheader("REGISTERED USERS")
-            top_chart_registered_users("top_user")
+        if selected_insight == "10. Insurance Premium Amount by State":
+            st.markdown('#### Total Insurance Premium Amount by State in India')
+            query18 = '''SELECT States , 
+                                SUM(Transaction_amount) AS Transaction_amount 
+                        FROM aggregated_insurance 
+                        GROUP BY States'''
+            cursor.execute(query18)
+            mydb.commit()
+            table18 = cursor.fetchall()
+            aggregated_data_state = pd.DataFrame(table18, columns=["States","Transaction_amount"])   
+            fig = px.bar(aggregated_data_state, x='States', y='Transaction_amount', height=700,
+                        title='Insurance Premium Amount by State in India',
+                        labels={'Transaction_amount': 'Insurance Premium Amount', 'States': 'States'},
+                        color='States', color_discrete_sequence=px.colors.qualitative.Pastel1)
+            fig.update_layout(legend_title="State List")
+            st.plotly_chart(fig, use_container_width=True) 
+        
+#------------------------------------------------------ALL INDIA INSIGHTS: INSIGHT-11----------------------------------------------------------------- 
+        if selected_insight == "11. Insurance Premium Count by State":    
+            st.markdown('#### Total Insurance Premium Count by State in India')
+            query19 = '''SELECT States , 
+                                SUM(Transaction_count) AS Transaction_count 
+                        FROM aggregated_insurance
+                        GROUP BY States'''
+            cursor.execute(query19)
+            mydb.commit()
+            table19 = cursor.fetchall()
+            aggregated_data_state = pd.DataFrame(table19, columns=["States","Transaction_count"])   
+            fig = px.bar(aggregated_data_state, x='States', y='Transaction_count', 
+                        title='Total Insurance Premium Count by State in India',
+                        labels={'Transaction_count': 'Insurance Premium Count', 'States': 'States'},
+                        color='States', color_discrete_sequence=px.colors.qualitative.Pastel1,height=700)
+            fig.update_layout(legend_title="State List")
+            st.plotly_chart(fig, use_container_width=True)                            
+#------------------------------------------------------ALL INDIA INSIGHTS: INSIGHT-12----------------------------------------------------------------- 
+        if selected_insight == "12. Registered User by State":
+            st.markdown('#### Total Registered User Count by State in India')
+            query20 = '''SELECT States , 
+                                SUM(RegisteredUsers) AS RegisteredUsers 
+                        FROM map_user
+                        GROUP BY States'''
+            cursor.execute(query20)
+            mydb.commit()
+            table20 = cursor.fetchall()
+            map_data_state = pd.DataFrame(table20, columns=["States","RegisteredUsers"])            
+            fig = px.bar(map_data_state, x='States', y='RegisteredUsers',
+                        title='Total Registered User by State in India',
+                        labels={'RegisteredUsers': 'Registered User', 'States': 'States'},
+                        color='States', color_discrete_sequence=px.colors.qualitative.Pastel1,height=700)
+            fig.update_layout(legend_title="State List")
+            st.plotly_chart(fig, use_container_width=True) 
+#------------------------------------------------------ALL INDIA INSIGHTS: INSIGHT-13-----------------------------------------------------------------      
+        if selected_insight == "13. App Opens by State":
+            st.markdown('#### Total App Opens Count by State in India')
+            query20 = '''SELECT States , 
+                                SUM(AppOpens) AS AppOpens 
+                        FROM map_user
+                        GROUP BY States'''
+            cursor.execute(query20)
+            mydb.commit()
+            table20 = cursor.fetchall()
+            map_data_state = pd.DataFrame(table20, columns=["States","AppOpens"])                 
+            fig = px.bar(map_data_state, x='States', y='AppOpens',
+                        title='Total App Opens by State in India',
+                        labels={'AppOpens': 'App Opens', 'States': 'States'},
+                        color='States', color_discrete_sequence=px.colors.qualitative.Pastel1,height=700)
+            fig.update_layout(legend_title="State List")
+            st.plotly_chart(fig, use_container_width=True) 
+#------------------------------------------------------ALL INDIA INSIGHTS: INSIGHT-14-----------------------------------------------------------------               
+                
+        
+        if selected_insight == "14. State Wise - Brand & Count":
+            query22 = '''SELECT States,
+                                Brands, 
+                                SUM(Transaction_count) AS Transaction_count 
+                        FROM aggregated_user 
+                        GROUP BY States,Brands'''
+            cursor.execute(query22)
+            mydb.commit()
+            table22 = cursor.fetchall()
+            agg_user_data = pd.DataFrame(table22, columns=["States","Brands","Transaction_count"]) 
+            fig = px.bar(agg_user_data, x='Brands', y='Transaction_count', color='States',
+                        title='Total Registered User Count by Mobile Brand in India',
+                        labels={'Transaction_count': 'Registered Users', 'States': 'States'},
+                        color_discrete_sequence=px.colors.qualitative.Pastel2_r, height=1000)
 
-#----------------------------------------------------------------END OF THE PROJECT------------------------------------------------------------------
+            fig.update_layout(barmode='stack', legend_title="States", xaxis_title="States", yaxis_title="Registered Users")
+
+            fig.update_traces(showlegend=True, selector=dict(type='bar'))
+
+            st.plotly_chart(fig, use_container_width=True)  
+#------------------------------------------------------ALL INDIA INSIGHTS: INSIGHT-15----------------------------------------------------------------- 
+        
+        if selected_insight == "15. Transaction Types Analysis by Years and Quarters":
+            query23 = '''SELECT Years, 
+                                Transaction_type, 
+                                SUM(Transaction_amount) AS Transaction_amount 
+                        FROM aggregated_transaction 
+                        GROUP BY Years,Transaction_type'''
+            cursor.execute(query23)
+            mydb.commit()
+            table23 = cursor.fetchall()
+            aggregated_data_state = pd.DataFrame(table23, columns=["Years","Transaction_type","Transaction_amount"])                         
+            st.markdown('#### Transaction Distribution by Year & Transaction Type')
+            fig = go.Figure()
+            aggregated_data_state['Years'] = aggregated_data_state['Years'].astype(str)
+            years = aggregated_data_state['Years'].unique()
+            for year in years:
+                df_year = aggregated_data_state[aggregated_data_state['Years'] == year]
+                fig.add_trace(go.Bar(
+                    x=df_year['Transaction_type'],
+                    y=df_year['Transaction_amount'],
+                    name=year
+                ))
+            fig.update_layout(barmode='group',
+                            title='Transaction Distribution by Year & Transaction Type',
+                            xaxis_title='Transaction Type',
+                            yaxis_title='Transaction Amount',
+                            width=900, height=550)
+
+            st.plotly_chart(fig, use_container_width=True)
+            
+            st.markdown('#### Transaction Distribution by Quarter & Transaction Type')
+            query24 = '''SELECT Quarter, 
+                                Transaction_type, 
+                                SUM(Transaction_amount) AS Transaction_amount 
+                        FROM aggregated_transaction 
+                        GROUP BY Quarter,Transaction_type'''
+            cursor.execute(query24)
+            mydb.commit()
+            table24 = cursor.fetchall()
+            aggregated_data_state = pd.DataFrame(table24, columns=["Quarter","Transaction_type","Transaction_amount"])  
+            fig = go.Figure()
+            aggregated_data_state['Quarter'] = aggregated_data_state['Quarter'].astype(str)
+            quarters = aggregated_data_state['Quarter'].unique()
+            for quarter in quarters:
+                df_quarter = aggregated_data_state[aggregated_data_state['Quarter'] == quarter]
+                fig.add_trace(go.Bar(
+                    x=df_quarter['Transaction_type'],
+                    y=df_quarter['Transaction_amount'],
+                    name=quarter
+                ))
+            fig.update_layout(barmode='group',
+                            title='Transaction Distribution by Quarter & Transaction Type',
+                            xaxis_title='Transaction Type',
+                            yaxis_title='Transaction Amount',
+                            width=900, height=550)
+
+            st.plotly_chart(fig, use_container_width=True)
+#------------------------------------------------------ALL INDIA INSIGHTS: INSIGHT-16----------------------------------------------------------------- 
+
+        if selected_insight=="16. Average Transaction Amount by Quarter":
+            st.markdown('### Average Transaction Amount by Quarter')
+            query26 = '''SELECT Quarter, 
+                                AVG(Transaction_amount) AS Transaction_amount 
+                        FROM aggregated_transaction 
+                        GROUP BY Quarter'''
+            cursor.execute(query26)
+            mydb.commit()
+            table26 = cursor.fetchall()
+            avg_trans_amount_data = pd.DataFrame(table26, columns=["Quarter","Transaction_amount"])
+            c1, c2 = st.columns((5,2),gap="large")
+            with c1:
+                avg_trans_amount_data['Transaction_amount']=avg_trans_amount_data['Transaction_amount'].apply(format_amount)
+                fig16 = px.bar(avg_trans_amount_data, x='Quarter', y='Transaction_amount', title='Average Transaction Amount by Quarter')
+                fig16.update_xaxes(tickmode='array', tickvals=[1,2,3,4])
+                st.plotly_chart(fig16)
+            with c2:
+                st.write("")
+                st.write("")
+                st.write("")
+                st.write("")
+                st.write("")
+                st.write("")
+                avg_trans_amount_data.rename(columns={"Transaction_amount": "Transaction Amount"}, inplace=True)
+                st.dataframe(avg_trans_amount_data, use_container_width=True, hide_index=True)
+
+#------------------------------------------------------ALL INDIA INSIGHTS: INSIGHT-17----------------------------------------------------------------- 
+        if selected_insight == '17. Percentage of Transactions by Type':
+            st.markdown('### Percentage of Transactions by Type')
+            query27 = '''WITH total_amount AS (
+                            SELECT SUM(Transaction_amount) AS total_transaction_amount
+                            FROM aggregated_transaction
+                        )
+                        SELECT 
+                            Transaction_type,
+                            SUM(Transaction_amount) AS Transaction_amount,
+                            (SUM(Transaction_amount) / total_amount.total_transaction_amount) * 100 AS percentage
+                        FROM 
+                            aggregated_transaction, total_amount
+                        GROUP BY 
+                            Transaction_type, total_amount.total_transaction_amount;'''
+            cursor.execute(query27)
+            mydb.commit()
+            table27 = cursor.fetchall()
+            transaction_type_percentage = pd.DataFrame(table27, columns=["Transaction_type","Transaction_amount","Percentage"])
+            c1, c2 = st.columns((5,2),gap="large")
+            with c1:
+                fig20 = px.pie(transaction_type_percentage, names='Transaction_type', values='Percentage', title='Percentage of Transactions by Type')
+                st.plotly_chart(fig20)
+            with c2:
+                st.write("")
+                st.write("")
+                st.write("")
+                st.write("")
+                st.write("")
+                st.write("")
+                transaction_type_percentage["Percentage"] = transaction_type_percentage["Percentage"]#.apply(lambda x: "{:.2%}".format(x))
+                transaction_type_percentage.rename(columns={"Transaction_amount": "Transaction Amount"}, inplace=True)
+                st.dataframe(transaction_type_percentage, use_container_width=True, hide_index=True)
+
+#------------------------------------------------------OPTION: STATE WISE INSIGHTS----------------------------------------------------------------- 
+    if selected =="State-wise-Insights":
+
+        col1,c1,c2,c3,c4,c5 = st.columns((1,0.8,1,1,1,1),gap="large")
+        with col1:
+            states = st.selectbox("#### Select State:", options=map_user_df["States"].unique())            
+
+        map_user = map_user_df[map_user_df['States'] == states] 
+
+        insight_options = [
+            f'1. Yearly Growth of Transaction Amount in {states}',
+            f'2. Yearly Growth of Transaction Count in {states}',
+            f'3. Yearly Growth of Insurance Premium amount in {states}',
+            f'4. Yearly Growth of Insurance Premium Count in {states}',
+            f'5. Yearly Growth of Registered User in {states}',
+            f'6. Yearly Growth of App Open in {states}',
+            f'7. {states} - Transaction Amount by District',
+            f'8. {states} - Transaction Count by District',
+            f'9. {states} - Insurance Premium Amount by District',
+            f'10. {states} - Insurance Premium Count by District',
+            f'11. {states} - Registered User by District',
+            f'12. {states} - App Opens by District',
+            f'13. {states} - Average Transaction Amount by Quarter by District']
+
+        selected_insight = st.selectbox("Select an Insights:", insight_options)
+
+
+#------------------------------------------------------STATE INSIGHTS: INSIGHT-1-----------------------------------------------------------------     
+        if selected_insight == f'1. Yearly Growth of Transaction Amount in {states}':
+            st.markdown(f'#### Yearly Growth of Transaction Amount in {states}')
+            query1 = '''SELECT Years, 
+                        SUM(Transaction_amount) AS Transaction_amount 
+                        FROM map_transaction
+                         WHERE years != 2024 and STATES = %s
+                        GROUP BY Years
+                        ORDER BY Years'''
+            cursor.execute(query1,(states,))
+            mydb.commit()
+            table1 = cursor.fetchall()
+            aggregated_data_yearly = pd.DataFrame(table1, columns=["Years","Transaction_amount"])          
+            aggregated_data_yearly['Transaction_amount']=aggregated_data_yearly['Transaction_amount'].apply(format_amount)
+            fig = px.line(aggregated_data_yearly, x='Years', y='Transaction_amount', 
+                   labels={'YearS': 'Years', 'Transaction_amount': 'Transaction Amount'}, 
+                    title=f'Yearly Growth of Transaction Amount in {states}',markers=True)
+            fig.update_xaxes(tickmode='array', tickvals=[2018,2019,2020,2021,2022,2023])
+            st.plotly_chart(fig, use_container_width=True) 
+            
+                            
+            on2 = st.toggle("Advanced Insights", key="states_toggle2")
+
+            if on2:
+                st.markdown(f"#### Quarterly Distribution of Transaction Amounts by Year in {states}")
+                map1 , table1 = st.columns((5,2),gap= 'large')   
+                query2 = '''SELECT  Years, Quarter, 
+                            SUM(Transaction_amount) AS Transaction_amount
+                                    
+                            FROM map_transaction 
+                            WHERE STATES = %s
+                            GROUP BY Years,Quarter'''
+                cursor.execute(query2,(states,))
+                mydb.commit()
+                table2 = cursor.fetchall()
+                aggregated_data1 = pd.DataFrame(table2, columns=["Years","Quarter","Transaction_amount"])                                   
+                aggregated_data1['Transaction_amount']=aggregated_data1['Transaction_amount'].apply(format_amount)
+                
+                aggregated_data1['Years'] = aggregated_data1['Years'].astype(str)
+                with map1:   
+                    fig = px.box(aggregated_data1, x='Years', y='Transaction_amount', color='Quarter',
+                                title=f'Box Plot of Quarterly Transaction Amount by Year in {states}',
+                                points='all')
+                               
+
+                    st.plotly_chart(fig, use_container_width=True)
+                with table1:  
+                    df_aggregated_data1=aggregated_data1
+                   
+                    df_aggregated_data1.rename(columns={"Transaction_amount": "Transaction Amount"}, inplace=True)                    
+                    st.markdown('#### Quarterly Transaction Distribution')
+                    st.dataframe(df_aggregated_data1, use_container_width=True, hide_index=True)    
+
+
+                query3 = '''SELECT  Years, Quarter, 
+                        SUM(Transaction_amount) AS Transaction_amount 
+                        FROM map_transaction 
+                        WHERE years != 2024 and states = %s
+                        GROUP BY Years,Quarter'''
+                cursor.execute(query3,(states,))
+                mydb.commit()
+                table3 = cursor.fetchall()
+                aggregated_data_state = pd.DataFrame(table3, columns=["Years","Quarter","Transaction_amount"])                 
+                st.markdown(f'#### Quarterly Transaction Amount Distribution by Transaction Amount for Each Year - {states}')
+                years = aggregated_data_state['Years'].unique()
+                num_columns = 3
+                columns = st.columns(num_columns)
+                for i, year in enumerate(years):
+                    df_year_quarter = aggregated_data_state[aggregated_data_state['Years'] == year]
+                    if not df_year_quarter.empty:
+                        fig = go.Figure(data=[go.Pie(labels=df_year_quarter['Quarter'], values=df_year_quarter['Transaction_amount'], hole=.3)])
+                        fig.update_layout(
+                            title=f'Transaction Amount Distribution for {year} - All Quarters',
+                            height=550,
+                        )
+                        with columns[i % num_columns]:
+                            st.markdown(f"### Year: {year}")
+                            st.plotly_chart(fig, use_container_width=True)
+                                
+                st.markdown(f'### Aggregated Transaction Amount for All Four Quarters Combined Across All Years - {states}')            
+                co1,co2,co3 = st.columns(3)
+                with co2:
+            
+                    aggregated_total = aggregated_data_state.groupby(['Quarter'])['Transaction_amount'].sum().reset_index()
+            
+                    
+                    fig_total = go.Figure(data=[go.Pie(labels=aggregated_total['Quarter'], values=aggregated_total['Transaction_amount'], hole=.3)])
+                    fig_total.update_layout(
+                        title='Aggregated Transaction Amount for All Quarters Combined',
+                        height=550,
+                    )
+                    st.plotly_chart(fig_total, use_container_width=True)    
+
+#------------------------------------------------------STATE INSIGHTS: INSIGHT-2----------------------------------------------------------------- 
+        if selected_insight == f'2. Yearly Growth of Transaction Count in {states}':
+            st.markdown(f'#### Yearly Growth of Transaction Count in {states}')
+            query4 = '''SELECT  years,
+                    SUM(transaction_count) AS transaction_count
+                    FROM map_transaction
+                    WHERE years != 2024 and states = %s
+                    GROUP BY Years
+                    ORDER BY Years'''
+            cursor.execute(query4,(states,))
+            mydb.commit()
+            table4 = cursor.fetchall()
+            aggregated_data_yearly_count = pd.DataFrame(table4, columns=["Years","Transaction_count"])             
+            aggregated_data_yearly_count['Transaction_count']=aggregated_data_yearly_count['Transaction_count'].apply(format_number)
+            fig = px.line(aggregated_data_yearly_count, x='Years', y='Transaction_count', 
+                            labels={'Years': 'Years', 'Transaction_count': 'Transaction Count'}, 
+                            title=f'Yearly Growth of Transaction Count in {states}', markers=True)
+            #fig.update_xaxes(tickmode='array', tickvals=[2018,2019,2020,2021,2022,2023])
+            st.plotly_chart(fig, use_container_width=True)   
+            
+            on3 = st.toggle("Advanced Insights", key="states_toggle3")
+
+            if on3:
+                map2 , table2 = st.columns((5,2),gap= 'large')   
+                query5 = '''SELECT  years, quarter,                     
+                    SUM(transaction_count) AS transaction_count
+                    FROM map_transaction
+                    WHERE states = %s
+                    GROUP BY years,quarter'''
+                cursor.execute(query5,(states,))
+                mydb.commit()
+                table5 = cursor.fetchall()
+                aggregated_data1 = pd.DataFrame(table5, columns=["Years","Quarter","Transaction_count"])                 
+                
+                aggregated_data1['Transaction_count']=aggregated_data1['Transaction_count'].apply(format_number)
+                aggregated_data1['Years'] = aggregated_data1['Years'].astype(str)
+                with map2:   
+                    st.markdown(f'#### Box Plot of Quarterly Transaction Count by Year in {states}')
+                    fig = px.box(aggregated_data1, x='Years', y='Transaction_count', color='Quarter',
+                                title=f'Box Plot of Quarterly Transaction Count by Year in {states}',
+                                points='all') 
+                             
+
+                    st.plotly_chart(fig, use_container_width=True)
+                with table2:  
+                    df_aggregated_data1=aggregated_data1
+                   
+                    df_aggregated_data1.rename(columns={"Transaction_count": "Transaction Count"}, inplace=True)
+                    st.markdown('#### Quarterly Transaction Count Distribution')
+                    st.dataframe(df_aggregated_data1, use_container_width=True, hide_index=True)   
+                    
+
+                query6 = '''SELECT  years, quarter, 
+                        SUM(transaction_count) AS transaction_count
+                        FROM map_transaction
+                        WHERE years != 2024 and states = %s
+                        GROUP BY years,quarter'''
+                cursor.execute(query6,(states,))
+                mydb.commit()
+                table6 = cursor.fetchall()
+                aggregated_data_state = pd.DataFrame(table6, columns=["Years","Quarter","Transaction_count"]) 
+                st.markdown(f'#### Quarterly Transaction Count Distribution by Transaction Count for Each Year - {states}')
+                years = aggregated_data_state['Years'].unique()
+
+           
+                num_columns = 3
+                columns = st.columns(num_columns)
+                for i, year in enumerate(years):
+                    df_year_quarter = aggregated_data_state[aggregated_data_state['Years'] == year]
+                    if not df_year_quarter.empty:
+                        fig = go.Figure(data=[go.Pie(labels=df_year_quarter['Quarter'], values=df_year_quarter['Transaction_count'], hole=.3)])
+                        fig.update_layout(
+                            title=f'Transaction Count Distribution for {year} - All Quarters',
+                            height=550,
+                        )
+                        with columns[i % num_columns]:
+                            st.markdown(f"### Year: {year}")
+                            st.plotly_chart(fig, use_container_width=True)
+                                
+                st.markdown(f'### Aggregated Transaction Count for All Four Quarters Combined Across All Years - {states}')            
+                co1,co2,co3 = st.columns(3)
+                with co2:
+                    aggregated_total = aggregated_data_state.groupby(['Quarter'])['Transaction_count'].sum().reset_index()
+                    fig_total = go.Figure(data=[go.Pie(labels=aggregated_total['Quarter'], values=aggregated_total['Transaction_count'], hole=.3)])
+                    fig_total.update_layout(
+                        title='Aggregated Transaction Count for All Quarters Combined',
+                        height=550,
+                    )
+                    st.plotly_chart(fig_total, use_container_width=True)
+
+#------------------------------------------------------STATE INSIGHTS: INSIGHT-3----------------------------------------------------------------- 
+
+        
+        if selected_insight == f'3. Yearly Growth of Insurance Premium amount in {states}':
+            st.markdown(f'#### Yearly Growth of Insurance Premium Amount in {states}')
+            query7 = '''SELECT  Years, 
+                    SUM(Transaction_amount) AS Transaction_amount
+                    FROM map_insurance
+                    WHERE years != 2024 and states = %s                  
+                    GROUP BY Years
+                    ORDER BY Years'''
+            cursor.execute(query7,(states,))
+            mydb.commit()
+            table7= cursor.fetchall()
+            map_ins_yearly = pd.DataFrame(table7, columns=["Years","Transaction_amount"])             
+            map_ins_yearly['Transaction_amount']=map_ins_yearly['Transaction_amount'].apply(format_amount)
+            fig = px.line(map_ins_yearly, x='Years', y='Transaction_amount', 
+                    labels={'Years': 'Years', 'Transaction_amount': 'Insurance Premium Amount'}, 
+                    title=f'Yearly Growth of Insurance Premium Amount in {states}', markers=True)
+            fig.update_xaxes(tickmode='array', tickvals=[2018,2019,2020,2021,2022,2023])
+            st.plotly_chart(fig, use_container_width=True) 
+            
+                            
+            on4 = st.toggle("Advanced Insights",key="states_toggle4")
+
+            if on4:
+                st.markdown(f"#### Quarterly Distribution of Insurance Premium Amount by Year in {states}")
+                map3 , table3 = st.columns((5,2),gap= 'large')   
+                query8 = '''SELECT  Years, Quarter, 
+                    SUM(Transaction_amount) AS Transaction_amount 
+                    FROM map_insurance
+                    WHERE STATEs = %s                
+                    GROUP BY Years,Quarter
+                    '''
+                cursor.execute(query8,(states,))
+                mydb.commit()
+                table8 = cursor.fetchall()
+                map_ins_data1 = pd.DataFrame(table8, columns=["Years","Quarter","Transaction_amount"])                
+                map_ins_data1['Transaction_amount']=map_ins_data1['Transaction_amount'].apply(format_amount)
+                
+                map_ins_data1['Years'] = map_ins_data1['Years'].astype(str)
+                with map3:   
+
+                    fig = px.box(map_ins_data1, x='Years', y='Transaction_amount', color='Quarter',
+                                title=f'Box Plot of Quarterly Insurance Premium Amount by Year in {states}',
+                                points='all')  
+                               
+
+                    st.plotly_chart(fig, use_container_width=True)
+                with table3:  
+                    df_agg_ins_data1=map_ins_data1
+                   
+                    df_agg_ins_data1.rename(columns={"Transaction_amount": "Transaction Amount"}, inplace=True)
+                    st.markdown('#### Quarterly Insurance Premium Amount Distribution')
+                    st.dataframe(df_agg_ins_data1, use_container_width=True, hide_index=True)
+
+
+
+                query9 = '''SELECT  Years, Quarter, 
+                        SUM(Transaction_amount) AS Transaction_amount
+                        FROM map_insurance
+                        WHERE years != 2024 and states = %s                     
+                        GROUP BY Years,Quarter'''
+                cursor.execute(query9,(states,))
+                mydb.commit()
+                table9 = cursor.fetchall()
+                map_ins_state = pd.DataFrame(table9, columns=["Years","Quarter","Transaction_amount"])   
+                st.markdown(f'#### Quarterly Transaction Amount Distribution by Insurance Premium Amount for Each Year - {states}')
+                years = map_ins_state['Years'].unique()
+                num_columns = 3
+                columns = st.columns(num_columns)
+
+                for i, year in enumerate(years):
+                    df_year_quarter = map_ins_state[map_ins_state['Years'] == year]
+                    if not df_year_quarter.empty:
+                        fig = go.Figure(data=[go.Pie(labels=df_year_quarter['Quarter'], values=df_year_quarter['Transaction_amount'], hole=.3)])
+                        fig.update_layout(
+                            title=f'Premium Amount Distribution for {year} - All Quarters',
+                            height=550,
+                        )
+                        with columns[i % num_columns]:
+                            st.markdown(f"### Year: {year}")
+                            st.plotly_chart(fig, use_container_width=True)
+                                
+                st.markdown(f'### Insurance Premium Amount for All Four Quarters Combined Across All Years - {states}')            
+                co1,co2,co3 = st.columns(3)
+                with co2:
+
+                    map_ins_total = map_ins_state.groupby(['Quarter'])['Transaction_amount'].sum().reset_index()
+                
+                    
+                    fig_total = go.Figure(data=[go.Pie(labels=map_ins_total['Quarter'], values=map_ins_total['Transaction_amount'], hole=.3)])
+                    fig_total.update_layout(
+                        title='Insurance Premium Amount for All Quarters Combined',
+                        height=550,
+                    )
+                    st.plotly_chart(fig_total, use_container_width=True)    
+
+#------------------------------------------------------STATE INSIGHTS: INSIGHT-4----------------------------------------------------------------- 
+
+        if selected_insight == f'4. Yearly Growth of Insurance Premium Count in {states}':
+            st.markdown(f'#### Yearly Growth of Insurance Premium Count in {states}')
+            query10 = '''SELECT  Years, 
+                    SUM(Transaction_count) AS Transaction_count
+                    FROM map_insurance
+                    WHERE years != 2024 and states = %s                     
+                    GROUP BY Years
+                    ORDER BY Years'''
+            cursor.execute(query10,(states,))
+            mydb.commit()
+            table10= cursor.fetchall()
+            map_ins_data_yearly_count = pd.DataFrame(table10, columns=["Years","Transaction_count"])                 
+            map_ins_data_yearly_count['Transaction_count']=map_ins_data_yearly_count['Transaction_count'].apply(format_number)
+            fig = px.line(map_ins_data_yearly_count, x='Years', y='Transaction_count', 
+                            labels={'Year': 'Years', 'Transaction_count': 'Insurance Premium Count'}, 
+                            title=f'Yearly Growth of Insurance Premium Count in {states}',markers=True)
+            fig.update_xaxes(tickmode='array', tickvals=[2018,2019,2020,2021,2022,2023])
+            st.plotly_chart(fig, use_container_width=True)   
+            
+            on5 = st.toggle("Advanced Insights", key="states_toggle5")
+
+            if on5:
+                map4 , table4 = st.columns((5,2),gap= 'large')   
+                query11 = '''SELECT  Years, Quarter, 
+                    SUM(Transaction_count) AS Transaction_count
+                    FROM map_insurance
+                    where states = %s                    
+                    GROUP BY Years,Quarter'''
+                cursor.execute(query11,(states,))
+                mydb.commit()
+                table11 = cursor.fetchall()
+                aggregated_data1 = pd.DataFrame(table11, columns=["Years","Quarter","Transaction_count"])                
+                
+                aggregated_data1['Transaction_count']=aggregated_data1['Transaction_count'].apply(format_number)
+                aggregated_data1['Years'] = aggregated_data1['Years'].astype(str)
+                with map4:   
+                    st.markdown(f'#### Box Plot of Quarterly Insurance Premium Count by Year in {states}')
+                    fig = px.box(aggregated_data1, x='Years', y='Transaction_count', color='Quarter',
+                                title=f'Box Plot of Quarterly Insurance Premium Count by Year in {states}',
+                                points='all')
+                               
+
+                    st.plotly_chart(fig, use_container_width=True)
+                with table4:  
+                    df_aggregated_data1=aggregated_data1
+                    
+                    df_aggregated_data1.rename(columns={"Transaction_count": "Transaction Count"}, inplace=True)
+                    st.markdown('#### Quarterly Insurance Premium Count Distribution')
+                    st.dataframe(df_aggregated_data1, use_container_width=True, hide_index=True)
+                    
+
+                query12 = '''SELECT  Years, Quarter, 
+                        SUM(Transaction_count) AS Transaction_count
+                        FROM map_insurance
+                        WHERE years != 2024 and states = %s                      
+                        GROUP BY Years,Quarter'''
+                cursor.execute(query12,(states,))
+                mydb.commit()
+                table12 = cursor.fetchall()
+                aggregated_data_state = pd.DataFrame(table12, columns=["Years","Quarter","Transaction_count"])                
+                st.markdown(f'#### Quarterly Distribution by Insurance Premium Count for Each Year - {states}')
+                years = aggregated_data_state['Years'].unique()
+                num_columns = 3
+                columns = st.columns(num_columns)
+
+                for i, year in enumerate(years):
+                    df_year_quarter = aggregated_data_state[aggregated_data_state['Years'] == year]
+                    if not df_year_quarter.empty:
+                        fig = go.Figure(data=[go.Pie(labels=df_year_quarter['Quarter'], values=df_year_quarter['Transaction_count'], hole=.3)])
+                        fig.update_layout(
+                            title=f'Premium Count Distribution for {year} - All Quarters',
+                            height=550,
+                        )
+                        with columns[i % num_columns]:
+                            st.markdown(f"### Year: {year}")
+                            st.plotly_chart(fig, use_container_width=True)
+                                
+                st.markdown(f'### Insurance Premium Count for All Four Quarters Combined Across All Years - {states}')            
+                co1,co2,co3 = st.columns(3)
+                with co2:
+
+                    aggregated_total = aggregated_data_state.groupby(['Quarter'])['Transaction_count'].sum().reset_index()
+
+                    
+                    fig_total = go.Figure(data=[go.Pie(labels=aggregated_total['Quarter'], values=aggregated_total['Transaction_count'], hole=.3)])
+                    fig_total.update_layout(
+                        title='Insurance Premium Count for All Quarters Combined',
+                        height=550,
+                    )
+                    st.plotly_chart(fig_total, use_container_width=True)
+
+
+
+#------------------------------------------------------STATE INSIGHTS: INSIGHT-5-----------------------------------------------------------------         
+        if selected_insight == f"5. Yearly Growth of Registered User in {states}":
+    
+            st.markdown(f'#### Yearly Growth of Registered User in {states}')
+            query13 = '''SELECT  Years, 
+                    SUM(RegisteredUsers) AS RegisteredUsers
+                    FROM map_user
+                    WHERE years != 2024 and states = %s                  
+                    GROUP BY Years
+                    ORDER BY Years'''
+            cursor.execute(query13,(states,))
+            mydb.commit()
+            table13= cursor.fetchall()
+            map_user_yearly = pd.DataFrame(table13, columns=["Years","RegisteredUsers"])              
+            map_user_yearly['RegisteredUsers']=map_user_yearly['RegisteredUsers'].apply(format_number)
+            fig = px.line(map_user_yearly, x='Years', y='RegisteredUsers',
+                            labels={'Years': 'Years', 'RegisteredUsers': 'Registered User'}, title=f'Yearly Growth of Registered User in {states}',markers=True)
+            fig.update_xaxes(tickmode='array', tickvals=[2018,2019,2020,2021,2022,2023,2024])
+            st.plotly_chart(fig, use_container_width=True)
+            
+            on6 = st.toggle("Advanced Insights", key="states_toggle6")
+
+            if on6:            
+                st.markdown(f'#### Area chart Quarter-wise Growth of Registered User in {states} ')
+                query14 = '''SELECT  Years, Quarter, 
+                    SUM(RegisteredUsers) AS RegisteredUsers
+                    FROM map_user
+                    WHERE years !=2024 and states = %s                   
+                    GROUP BY Years,Quarter'''
+                cursor.execute(query14,(states,))
+                mydb.commit()
+                table14 = cursor.fetchall()
+                map_data1 = pd.DataFrame(table14, columns=["Years","Quarter","RegisteredUsers"])      
+                map5 , table5 = st.columns((5,2),gap= 'large')   
+                with map5:                             
+                    map_data = map_user[map_user['Years'] != 2024].groupby(['Years', 'Quarter'])['RegisteredUsers'].sum().reset_index()
+                    fig = px.area(
+                        map_data,
+                        x='Quarter',
+                        y='RegisteredUsers',
+                        color='Years',
+                        title=f"Quarter-wise Growth of Registered User in {states}",
+                        labels={'Quarter': 'Quarter', 'RegisteredUsers': 'Registered User'},
+                        hover_data={'RegisteredUsers': ':.2f'}
+                    )
+                    fig.update_layout(margin=dict(t=50, b=50, l=50, r=50))
+                    fig.update_xaxes(tickmode='array', tickvals=[1,2,3,4])
+                    st.plotly_chart(fig, use_container_width=True)
+                with table5:
+                    df_map_data=map_data
+                    df_map_data['Years'] = df_map_data['Years'].apply(lambda x: '{:.0f}'.format(x))
+                    df_map_data["RegisteredUsers"]=df_map_data["RegisteredUsers"].apply(format_number)
+                    df_map_data.rename(columns={"RegisteredUsers": "RegisteredUsers Users"}, inplace=True)
+                    st.markdown('#### Quarterly Registered User in India')
+                    st.dataframe(df_map_data, use_container_width=True, hide_index=True)
+                                    
+
+                st.markdown(f'#### Quarterly Distribution by Registered User for Each Year - {states}')
+                years = map_data1['Years'].unique()
+                num_columns = 3
+                columns = st.columns(num_columns)
+
+                for i, year in enumerate(years):
+                    df_year_quarter = map_data1[map_data1['Years'] == year]
+                    if not df_year_quarter.empty:
+                        fig = go.Figure(data=[go.Pie(labels=df_year_quarter['Quarter'], values=df_year_quarter['RegisteredUsers'], hole=.3)])
+                        fig.update_layout(
+                            title=f'Registered User Distribution for {year} - All Quarters',
+                            height=550,
+                        )
+                        with columns[i % num_columns]:
+                            st.markdown(f"### Year: {year}")
+                            st.plotly_chart(fig, use_container_width=True)
+                                
+                st.markdown(f'### Registered User for All Four Quarters Combined Across All Years -states')            
+                co1,co2,co3 = st.columns(3)
+                with co2:
+                    map_user_total = map_data1.groupby(['Quarter'])['RegisteredUsers'].sum().reset_index()
+
+                    fig_total = go.Figure(data=[go.Pie(labels=map_user_total['Quarter'], values=map_user_total['RegisteredUsers'], hole=.3)])
+                    fig_total.update_layout(
+                        title='Registered User for All Quarters Combined',
+                        height=550,
+                    )
+                    st.plotly_chart(fig_total, use_container_width=True)
+
+
+
+#------------------------------------------------------STATE INSIGHTS: INSIGHT-6----------------------------------------------------------------- 
+        if selected_insight == f"6. Yearly Growth of App Open in {states}":
+            st.markdown(f'#### Yearly Growth of App Opens in {states}')
+            query15 = '''SELECT  Years, 
+                    SUM(AppOpens) AS AppOpens
+                    FROM map_user
+                    WHERE years NOT IN (2018,2024) and states = %s            
+                    GROUP BY Years
+                    ORDER BY Years'''
+            cursor.execute(query15,(states,))
+            mydb.commit()
+            table15= cursor.fetchall()
+            map_user_years_appopens = pd.DataFrame(table15, columns=["Years","AppOpens"])             
+            map_user_years_appopens['AppOpens']=map_user_years_appopens['AppOpens'].apply(format_number)
+            fig = px.line(map_user_years_appopens, x='Years', y='AppOpens', 
+                            labels={'Years': 'Years', 'AppOpens': 'App Opens'},title=f'Yearly Growth of App Opens in {states}',markers=True)
+            fig.update_xaxes(tickmode='array', tickvals=[2019,2020,2021,2022,2023])
+            st.plotly_chart(fig, use_container_width=True) 
+            
+            on5 = st.toggle("Advanced Insights", key="states_toggle5")
+
+            if on5:            
+                st.markdown(f'#### Area chart Quarter-wise Growth of App Opens in {states} ')
+                map6 , table6 = st.columns((5,2),gap= 'large')  
+                with map6:                
+                    map_data = map_user[~map_user['Years'].isin([2024, 2018])].groupby(['Years', 'Quarter'])['AppOpens'].sum().reset_index()
+                    fig = px.area(
+                        map_data,
+                        x='Quarter',
+                        y='AppOpens',
+                        color='Years',
+                        title=f"Quarter-wise Growth of App Opens in {states}",
+                        labels={'Quarter': 'Quarter', 'AppOpens': 'App Opens'},
+                        hover_data={'AppOpens': ':.2f'}
+                    )
+                    fig.update_layout(margin=dict(t=50, b=50, l=50, r=50))
+                    fig.update_xaxes(tickmode='array', tickvals=[1,2,3,4])
+                    st.plotly_chart(fig, use_container_width=True)
+                with table6:
+                    df_map_data=map_data
+                    df_map_data['Years'] = df_map_data['Years'].apply(lambda x: '{:.0f}'.format(x))
+                    df_map_data["AppOpens"]=df_map_data["AppOpens"].apply(format_number)
+                    df_map_data.rename(columns={"AppOpens": "App Opens"}, inplace=True)
+                    st.markdown('#### Quarterly App Opens in India')
+                    st.dataframe(df_map_data, use_container_width=True, hide_index=True)
+                                        
+                query16 = '''SELECT  Years, quarter, 
+                    SUM(AppOpens) AS AppOpens
+                    FROM map_user
+                    WHERE years NOT IN (2024, 2018) and states = %s           
+                    GROUP BY Years,quarter'''
+                cursor.execute(query16,(states,))
+                mydb.commit()
+                table16 = cursor.fetchall()
+                map_user_state = pd.DataFrame(table16, columns=["Years","Quarter","AppOpens"]) 
+                                
+                st.markdown(f'#### Quarterly Distribution by App Opens for Each Year - {states}')
+
+                years = map_user_state['Years'].unique()
+
+                num_columns = 3
+                columns = st.columns(num_columns)
+
+                for i, year in enumerate(years):
+                    df_year_quarter = map_user_state[map_user_state['Years'] == year]
+                    if not df_year_quarter.empty:
+                        fig = go.Figure(data=[go.Pie(labels=df_year_quarter['Quarter'], values=df_year_quarter['AppOpens'], hole=.3)])
+                        fig.update_layout(
+                            title=f'App Opens Distribution for {year} - All Quarters',
+                            height=550,
+                        )
+                        with columns[i % num_columns]:
+                            st.markdown(f"### Year: {year}")
+                            st.plotly_chart(fig, use_container_width=True)
+                                
+                st.markdown(f'### App Opens for All Four Quarters Combined Across All Years - {states}')            
+                co1,co2,co3 = st.columns(3)
+                with co2:
+                    map_user_total = map_user_state.groupby(['Quarter'])['AppOpens'].sum().reset_index()
+                    fig_total = go.Figure(data=[go.Pie(labels=map_user_total['Quarter'], values=map_user_total['AppOpens'], hole=.3)])
+                    fig_total.update_layout(
+                        title='App Opens for All Quarters Combined',
+                        height=550,
+                    )
+                    st.plotly_chart(fig_total, use_container_width=True) 
+
+
+#------------------------------------------------------STATE INSIGHTS: INSIGHT-7-----------------------------------------------------------------    
+        if selected_insight == f'7. {states} - Transaction Amount by District':
+            st.markdown(f'#### Total Transaction Amount by District in {states}')
+            query17 = '''SELECT Districts , 
+                                SUM(Transaction_amount) AS Transaction_amount 
+                        FROM map_transaction
+                        where states = %s                      
+                        GROUP BY Districts'''
+            cursor.execute(query17,(states,))
+            mydb.commit()
+            table17 = cursor.fetchall()
+            aggregated_data_state = pd.DataFrame(table17, columns=["Districts","Transaction_amount"])             
+            fig = px.bar(aggregated_data_state, x='Districts', y='Transaction_amount', height=700,
+                        title=f'Transaction Amount by District in {states}',
+                        labels={'Transaction_amount': 'Transaction Amount', 'Districts': 'District'},
+                        color='Districts', color_discrete_sequence=px.colors.qualitative.Pastel1)
+            fig.update_layout(legend_title="District List")
+            st.plotly_chart(fig, use_container_width=True)
+
+
+
+#------------------------------------------------------STATE INSIGHTS: INSIGHT-8-----------------------------------------------------------------   
+        if selected_insight == f'8. {states} - Transaction Count by District':    
+            st.markdown(f'#### Total Transaction Count by District in {states}')
+            query18 = '''SELECT Districts , 
+                                SUM(transaction_count) AS transaction_count 
+                        FROM map_transaction
+                        where states = %s              
+                        GROUP BY Districts'''
+            cursor.execute(query18,(states,))
+            mydb.commit()
+            table18 = cursor.fetchall()
+            aggregated_data_state = pd.DataFrame(table18, columns=["Districts","Transaction_count"])             
+            fig = px.bar(aggregated_data_state, x='Districts', y='Transaction_count', 
+                        title=f'Total Transaction Count by District in {states}',
+                        labels={'Transaction_count': 'Transaction Count', 'Districts': 'District'},
+                        color='Districts', color_discrete_sequence=px.colors.qualitative.Pastel1,height=700)
+            fig.update_layout(legend_title="District List")
+            st.plotly_chart(fig, use_container_width=True)
+
+
+
+#------------------------------------------------------STATE INSIGHTS: INSIGHT-9-----------------------------------------------------------------   
+        if selected_insight == f'9. {states} - Insurance Premium Amount by District':
+            st.markdown(f'#### Total Insurance Premium Amount by District in {states}')
+            query19 = '''SELECT Districts , 
+                                SUM(Transaction_amount) AS Transaction_amount 
+                        FROM map_insurance
+                        where states = %s            
+                        GROUP BY Districts'''
+            cursor.execute(query19,(states,))
+            mydb.commit()
+            table19 = cursor.fetchall()
+            aggregated_data_state = pd.DataFrame(table19, columns=["Districts","Transaction_amount"])               
+            fig = px.bar(aggregated_data_state, x='Districts', y='Transaction_amount', height=700,
+                        title=f'Insurance Premium Amount by District in {states}',
+                        labels={'Transaction_amount': 'Insurance Premium Amount', 'Districts': 'District'},
+                        color='Districts', color_discrete_sequence=px.colors.qualitative.Pastel1)
+            fig.update_layout(legend_title="District List")
+            st.plotly_chart(fig, use_container_width=True)
+
+
+
+#------------------------------------------------------STATE INSIGHTS: INSIGHT-10-----------------------------------------------------------------   
+        if selected_insight ==f'10. {states} - Insurance Premium Count by District':    
+            st.markdown(f'#### Total Insurance Premium Count by District in {states}')
+            query20 = '''SELECT Districts , 
+                                SUM(transaction_count) AS transaction_count 
+                        FROM map_insurance
+                        where States = %s
+                        GROUP BY Districts'''
+            cursor.execute(query20,(states,))
+            mydb.commit()
+            table20 = cursor.fetchall()
+            aggregated_data_state = pd.DataFrame(table20, columns=["Districts","Transaction_count"])               
+            fig = px.bar(aggregated_data_state, x='Districts', y='Transaction_count', 
+                        title=f'Total Insurance Premium Count by District in {states}',
+                        labels={'Transaction_count': 'Insurance Premium Count', 'Districts': 'Districts'},
+                        color='Districts', color_discrete_sequence=px.colors.qualitative.Pastel1,height=700)
+            fig.update_layout(legend_title="District List")
+            st.plotly_chart(fig, use_container_width=True) 
+
+
+
+#------------------------------------------------------STATE INSIGHTS: INSIGHT-11----------------------------------------------------------------- 
+        if selected_insight == f'11. {states} - Registered User by District':
+            st.markdown(f'#### Total Registered User Count by District in {states}')
+            query21 = '''SELECT Districts , 
+                                SUM(RegisteredUsers) AS RegisteredUsers 
+                        FROM map_user
+                        where states = %s                    
+                        GROUP BY Districts'''
+            cursor.execute(query21,(states,))
+            mydb.commit()
+            table21 = cursor.fetchall()
+            map_data_state = pd.DataFrame(table21, columns=["Districts","RegisteredUsers"])               
+            fig = px.bar(map_data_state, x='Districts', y='RegisteredUsers',
+                        title=f'Total Registered User by District in {states}',
+                        labels={'RegisteredUsers': 'Registered User', 'Districts': 'District'},
+                        color='Districts', color_discrete_sequence=px.colors.qualitative.Pastel1,height=700)
+            fig.update_layout(legend_title="District List")
+            st.plotly_chart(fig, use_container_width=True)
+
+
+
+#------------------------------------------------------STATE INSIGHTS: INSIGHT-12-----------------------------------------------------------------       
+        if selected_insight == f'12. {states} - App Opens by District':
+
+            st.markdown(f'#### Total App Opens Count by District in {states}')
+            query22 = '''SELECT Districts , 
+                                SUM(AppOpens) AS AppOpens 
+                        FROM map_user
+                        where states = %s                      
+                        GROUP BY Districts'''
+            cursor.execute(query22,(states,))
+            mydb.commit()
+            table22 = cursor.fetchall()          
+            map_data_state = map_user.groupby('Districts')['AppOpens'].sum().reset_index()
+            fig = px.bar(map_data_state, x='Districts', y='AppOpens',
+                        title=f'Total App Opens by District in {states}',
+                        labels={'AppOpens': 'App Opens', 'Districts': 'District'},
+                        color='Districts', color_discrete_sequence=px.colors.qualitative.Pastel1,height=700)
+            fig.update_layout(legend_title="District List")
+            st.plotly_chart(fig, use_container_width=True)
+
+
+
+#------------------------------------------------------STATE INSIGHTS: INSIGHT-13----------------------------------------------------------------- 
+        if selected_insight==f'13. {states} - Average Transaction Amount by Quarter by District':
+            st.markdown(f'### Average Transaction Amount by Quarter in {states}')
+            query23 = '''SELECT Quarter, 
+                                AVG(Transaction_amount) AS Transaction_amount 
+                        FROM map_transaction
+                        where states = %s                        
+                        GROUP BY Quarter'''
+            cursor.execute(query23,(states,))
+            mydb.commit()
+            table23 = cursor.fetchall()
+            avg_trans_amount_data = pd.DataFrame(table23, columns=["Quarter","Transaction_amount"])            
+            c1, c2 = st.columns((5,2),gap="large")
+            with c1:
+                avg_trans_amount_data['Transaction_amount']=avg_trans_amount_data['Transaction_amount'].apply(format_amount)
+                fig16 = px.bar(avg_trans_amount_data, x='Quarter', y='Transaction_amount', title='Average Transaction Amount by Quarter')
+                fig16.update_xaxes(tickmode='array', tickvals=[1,2,3,4])
+                st.plotly_chart(fig16)
+            with c2:
+                st.write("")
+                st.write("")
+                st.write("")
+                st.write("")
+                st.write("")
+                st.write("")
+                avg_trans_amount_data.rename(columns={"Transaction_amount": "Transaction Amount"}, inplace=True)
+                st.dataframe(avg_trans_amount_data, use_container_width=True, hide_index=True)
+
+
+#-------------------------------------------------------------END OF THE PROJECT------------------------------------------------------------------------
+
